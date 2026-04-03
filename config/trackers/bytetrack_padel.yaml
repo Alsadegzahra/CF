@@ -1,0 +1,12 @@
+# CourtFlow default: ByteTrack for padel (no ReID).
+# Same approach as padel_analytics (Joao-M-Silva) and DS_Padel: stable IDs, fewer
+# ID switches than BoT-SORT with ReID when kits are similar. Use botsort_padel.yaml
+# if you need ReID for very different kits.
+
+tracker_type: bytetrack
+track_buffer: 90
+track_high_thresh: 0.3
+track_low_thresh: 0.1
+new_track_thresh: 0.3
+match_thresh: 0.7
+fuse_score: True

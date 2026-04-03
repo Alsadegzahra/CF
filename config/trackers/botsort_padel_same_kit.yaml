@@ -1,0 +1,17 @@
+# CourtFlow: BoT-SORT when same kit (ReID off). Tuned to reduce ID switch when ReID is off:
+# Stricter match_thresh (only associate when IoU/position very good), lower track_buffer
+# (fewer stale tracks to wrongly re-associate), higher track_high_thresh (cleaner first match).
+# Ref: Ultralytics tracker params; lower buffer + stricter match = fewer wrong associations.
+
+tracker_type: botsort
+track_buffer: 120
+track_high_thresh: 0.3
+track_low_thresh: 0.1
+new_track_thresh: 0.3
+match_thresh: 0.65
+fuse_score: True
+gmc_method: sparseOptFlow
+proximity_thresh: 0.5
+appearance_thresh: 0.8
+with_reid: False
+model: auto

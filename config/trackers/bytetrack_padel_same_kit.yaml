@@ -1,0 +1,10 @@
+# CourtFlow: ByteTrack when same kit (no ReID). ByteTrack can have fewer ID switches
+# than BoT-SORT without ReID in some benchmarks. Stricter match, moderate buffer.
+
+tracker_type: bytetrack
+track_buffer: 90
+track_high_thresh: 0.3
+track_low_thresh: 0.1
+new_track_thresh: 0.3
+match_thresh: 0.7
+fuse_score: True

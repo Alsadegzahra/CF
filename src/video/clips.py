@@ -25,6 +25,32 @@ def probe_duration(video_path: Path) -> float:
     return float(json.loads(r.stdout).get("format", {}).get("duration", 0))
 
 
+def probe_fps(video_path: Path) -> float:
+    """Probe video FPS (e.g. 30.0). Falls back to 30.0 if unreadable."""
+    _check_ffmpeg()
+    cmd = [
+        "ffprobe", "-v", "error", "-print_format", "json",
+        "-select_streams", "v:0", "-show_entries", "stream=r_frame_rate",
+        str(video_path),
+    ]
+    r = subprocess.run(cmd, capture_output=True, text=True)
+    if r.returncode != 0:
+        return 30.0
+    data = json.loads(r.stdout)
+    entries = data.get("streams") or []
+    if not entries:
+        return 30.0
+    rate = entries[0].get("r_frame_rate")
+    if not rate or "/" not in str(rate):
+        return 30.0
+    num, den = rate.split("/", 1)
+    try:
+        n, d = float(num), float(den)
+        return n / d if d else 30.0
+    except (ValueError, ZeroDivisionError):
+        return 30.0
+
+
 def cut_clip(input_video: Path, output_video: Path, start_s: float, end_s: float) -> None:
     _check_ffmpeg()
     if end_s <= start_s:

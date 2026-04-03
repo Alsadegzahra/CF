@@ -107,6 +107,53 @@ This section walks through **physical wiring**, **power**, **network**, and **st
 
 ---
 
+### 4b. How to put the code on the edge device (Pi)
+
+You need the CourtFlow repo (and optionally `models/best.pt`) on the Pi. Three ways:
+
+**Option 1: Git clone (recommended if the repo is on GitHub/GitLab)**
+
+- Pi has internet (Wi‑Fi or Ethernet). On the Pi:
+  ```bash
+  cd /mnt/courtflow
+  git clone https://github.com/Alsadegzahra/CF.git courtflow
+  cd courtflow
+  python3 -m venv venv
+  source venv/bin/activate
+  pip install -r requirements.txt
+  ```
+- To update later: `cd /mnt/courtflow/courtflow && git pull && pip install -r requirements.txt` (with venv active).
+
+**Option 2: Copy from your laptop (no git on Pi, or no internet at court)**
+
+- On your **laptop** (in the CourtFlow repo): create a tarball (no need to include `data/` or `venv`):
+  ```bash
+  cd /Users/zahraalsadeg/Desktop/CourtFlow-1   # or your repo path
+  tar --exclude='data' --exclude='venv' --exclude='.git/refs' -czvf courtflow.tar.gz .
+  # Or zip: zip -r courtflow.zip . -x 'data/*' -x 'venv/*' -x '.git/*'
+  ```
+- Copy to the Pi (replace `pi@192.168.1.10` with your Pi’s user and IP):
+  ```bash
+  scp courtflow.tar.gz pi@192.168.1.10:/mnt/courtflow/
+  ```
+- On the **Pi**:
+  ```bash
+  cd /mnt/courtflow
+  tar -xzvf courtflow.tar.gz -C courtflow   # create courtflow dir first: mkdir courtflow
+  cd courtflow
+  python3 -m venv venv
+  source venv/bin/activate
+  pip install -r requirements.txt
+  ```
+
+**Option 3: USB stick**
+
+- Copy the repo (or a tarball/zip) onto a USB stick from your laptop. Plug the stick into the Pi, mount it, then copy into `/mnt/courtflow/courtflow` and run `python3 -m venv venv`, `pip install -r requirements.txt` as above.
+
+**Custom model (`best.pt`):** If you use a trained model, copy `models/best.pt` to the Pi (scp, USB, or include it in the tarball). Place it at `courtflow/models/best.pt` so the pipeline picks it up by default.
+
+---
+
 ### 5. End-to-end process (one match, all on Pi)
 
 **Before the match (one-time per court):** Calibration is in place under `data/courts/court_001/calibration/` (or your court_id). CourtFlow venv is activated and `COURTFLOW_DATA_DIR` is set.
@@ -163,6 +210,80 @@ You can add a small script on the Pi that:
 5. Prints where the report and highlights are, and optionally starts the API.
 
 That way you don’t have to remember the exact commands; the “wires and process” stay the same as above.
+
+---
+
+### 7. Run by itself (automation)
+
+To have the Pi **record and process without you being there**, use a script plus **cron** (or a **systemd** service). Idea: at a fixed time (e.g. match start), start a job that records for a set duration, then runs the pipeline.
+
+**Step 1: One script that does “record then pipeline”**
+
+Create on the Pi (e.g. `/mnt/courtflow/courtflow/scripts/edge_record_and_run.sh`) and make it executable (`chmod +x ...`):
+
+```bash
+#!/bin/bash
+# Record from RTSP for RECORD_SECONDS, then run CourtFlow pipeline. Run from repo root with venv active.
+
+set -e
+COURT_ID="${COURT_ID:-court_001}"
+RECORD_SECONDS="${RECORD_SECONDS:-7200}"   # default 2 hours
+DATA_DIR="${COURTFLOW_DATA_DIR:-/mnt/courtflow/data}"
+REPO_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+RTSP_URL="${RTSP_URL:-rtsp://USER:PASS@CAMERA_IP:554/stream1}"   # set in env or here
+
+cd "$REPO_DIR"
+source venv/bin/activate
+export COURTFLOW_DATA_DIR="$DATA_DIR"
+
+export MATCH_ID="match_$(date +%Y_%m_%d_%H%M%S)"
+mkdir -p "$DATA_DIR/matches/$MATCH_ID/raw"
+RAW_MP4="$DATA_DIR/matches/$MATCH_ID/raw/match.mp4"
+
+echo "Recording for ${RECORD_SECONDS}s into $RAW_MP4"
+ffmpeg -rtsp_transport tcp -i "$RTSP_URL" -t "$RECORD_SECONDS" -c copy -y "$RAW_MP4"
+
+echo "Running ingest and pipeline for $MATCH_ID"
+echo n | python3 -m src.app.cli ingest-match --court_id "$COURT_ID" --input "$RAW_MP4"
+python3 -m src.app.cli run-match --match_id "$MATCH_ID"
+
+echo "Done. Match $MATCH_ID report: $DATA_DIR/matches/$MATCH_ID/reports/"
+```
+
+- Set **RTSP_URL** (and optionally COURT_ID, RECORD_SECONDS, COURTFLOW_DATA_DIR) in the environment or edit the script.
+- `echo n` avoids the “Define court points? [y/N]:” prompt so it can run unattended (you must have calibrated the court once before).
+
+**Step 2: Run the script automatically with cron**
+
+- Run at a fixed time every day (e.g. 2:00 PM = match start, record 2 hours then pipeline). Create a log dir first: `mkdir -p /mnt/courtflow/logs`.
+
+  ```bash
+  crontab -e
+  ```
+
+  Add one line (use the **pi** user or the user that owns the repo; set RTSP_URL and paths to match your Pi):
+
+  ```cron
+  0 14 * * * COURTFLOW_DATA_DIR=/mnt/courtflow/data RTSP_URL="rtsp://user:pass@192.168.1.100:554/stream1" RECORD_SECONDS=7200 /bin/bash /mnt/courtflow/courtflow/scripts/edge_record_and_run.sh >> /mnt/courtflow/logs/cron.log 2>&1
+  ```
+
+  Cron runs the script at 14:00; the script activates the venv, records for 7200 seconds (2 h), then runs ingest + run-match. Check logs: `tail -f /mnt/courtflow/logs/cron.log`.
+
+**Step 3 (optional): systemd so it survives reboot**
+
+- Use a **timer** (like cron) or a **service** that runs the script. Example one-shot service that cron starts, or a systemd timer at 14:00 that runs the same script. The script above is unchanged; systemd just runs it at the right time with the right env (same as cron).
+
+**Summary**
+
+| What | How |
+|------|-----|
+| **Record for N seconds** | FFmpeg `-t RECORD_SECONDS` in the script. |
+| **Then run pipeline** | Script runs `ingest-match` and `run-match` after FFmpeg exits. |
+| **No interaction** | `echo n \| ingest-match` so “Define court points?” is skipped. |
+| **Run at match time** | Cron at 14:00 (or your time) runs the script. |
+| **Logs** | Redirect cron to a file, e.g. `>> /mnt/courtflow/logs/cron.log 2>&1`. |
+
+After this, the edge device records and processes by itself at the scheduled time; you only need to keep the Pi powered and the camera on.
 
 ---
 

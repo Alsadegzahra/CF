@@ -173,12 +173,16 @@ def get_match_report(match_id: str) -> dict:
 
 
 @app.get("/matches/{match_id}/report/heatmap", tags=["reports"])
-def get_match_report_heatmap(match_id: str):
-    """Serve court heatmap image for the user dashboard. 404 if not generated."""
+def get_match_report_heatmap(match_id: str, player_id: Optional[str] = None):
+    """Serve court heatmap image (all players or per-player). Use ?player_id=1 for P1, etc."""
     row = db.get_match(match_id)
     if not row:
         raise HTTPException(status_code=404, detail="Match not found")
-    heatmap_path = Path(row["output_dir"]) / "reports" / "heatmap.png"
+    reports_dir = Path(row["output_dir"]) / "reports"
+    if player_id and player_id in ("1", "2", "3", "4"):
+        heatmap_path = reports_dir / f"heatmap_player_{player_id}.png"
+    else:
+        heatmap_path = reports_dir / "heatmap.png"
     if not heatmap_path.exists():
         raise HTTPException(status_code=404, detail="Heatmap not found")
     return FileResponse(heatmap_path, media_type="image/png")
@@ -194,6 +198,20 @@ def get_match_highlights_video(match_id: str):
     if not video_path.exists():
         raise HTTPException(status_code=404, detail="Highlights video not found")
     return FileResponse(video_path, media_type="video/mp4")
+
+
+@app.get("/matches/{match_id}/player-thumb/{player_id}", tags=["reports"])
+def get_match_player_thumb(match_id: str, player_id: str):
+    """Serve player thumbnail image for the dashboard (crop from match video). 404 if not generated."""
+    row = db.get_match(match_id)
+    if not row:
+        raise HTTPException(status_code=404, detail="Match not found")
+    if player_id not in ("1", "2", "3", "4"):
+        raise HTTPException(status_code=400, detail="player_id must be 1, 2, 3, or 4")
+    thumb_path = Path(row["output_dir"]) / "renders" / f"player_{player_id}_thumb.jpg"
+    if not thumb_path.exists():
+        raise HTTPException(status_code=404, detail="Player thumbnail not found")
+    return FileResponse(thumb_path, media_type="image/jpeg")
 
 
 @app.get("/matches/{match_id}/meta", tags=["reports"])

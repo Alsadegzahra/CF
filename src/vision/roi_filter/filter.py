@@ -52,6 +52,39 @@ def filter_detections_by_roi(
     return out
 
 
+def roi_centroid(roi_polygon_px: List[Tuple[float, float]]) -> Optional[Tuple[float, float]]:
+    """Court center in pixel coords (centroid of ROI). None if polygon invalid."""
+    if not roi_polygon_px or len(roi_polygon_px) < 3:
+        return None
+    contour = np.array(roi_polygon_px, dtype=np.float32)
+    M = cv2.moments(contour)
+    if M["m00"] == 0:
+        return None
+    cx = M["m10"] / M["m00"]
+    cy = M["m01"] / M["m00"]
+    return (float(cx), float(cy))
+
+
+def keep_closest_n_detections(
+    detections: List[dict],
+    center_xy: Tuple[float, float],
+    n: int = 4,
+    *,
+    use_bottom_center: bool = True,
+) -> List[dict]:
+    """
+    Keep at most n detections whose ground point is closest to center_xy (e.g. court center).
+    Like DS_Padel: choose the n players closest to the court center.
+    """
+    if len(detections) <= n:
+        return detections
+    def dist(d: dict) -> float:
+        x, y = _bbox_bottom_center(d.get("bbox_xyxy") or [0, 0, 0, 0])
+        return (x - center_xy[0]) ** 2 + (y - center_xy[1]) ** 2
+    sorted_d = sorted(detections, key=dist)
+    return sorted_d[:n]
+
+
 def load_roi_for_match(
     match_calib_dir: Path,
     court_calib_dir: Optional[Path] = None,

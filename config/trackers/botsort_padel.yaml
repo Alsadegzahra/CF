@@ -1,0 +1,20 @@
+# CourtFlow: BoT-SORT for padel (4 players) with ReID (default).
+# ReID helps re-associate after occlusion. If 1&2 and 3&4 wear the same kit, use
+# --same-kit (or tracker=config/trackers/botsort_padel_same_kit.yaml) to turn ReID off.
+#
+# Tuning for more stable IDs (fewer new IDs): higher new_track_thresh = slower to
+# create new tracks; lower match_thresh = more lenient re-association. See
+# https://github.com/orgs/ultralytics/discussions/20699 (low FPS / inconsistent IDs).
+
+tracker_type: botsort
+track_buffer: 240
+track_high_thresh: 0.25
+track_low_thresh: 0.1
+new_track_thresh: 0.4
+match_thresh: 0.65
+fuse_score: True
+gmc_method: sparseOptFlow
+proximity_thresh: 0.4
+appearance_thresh: 0.92
+with_reid: True
+model: auto

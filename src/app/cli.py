@@ -125,17 +125,23 @@ def cmd_ingest_match(args: argparse.Namespace) -> None:
     raw_dir = match_raw_dir(match_id)
     raw_dir.mkdir(parents=True, exist_ok=True)
     match_mp4 = raw_dir / "match.mp4"
-    ingest_file_to_mp4(Path(args.input), match_mp4)
+    ingest_file_to_mp4(
+        Path(args.input), match_mp4,
+        copy_only=not getattr(args, "reencode", False),
+    )
     # Optionally register raw artifact
     add_artifact(match_id, "RAW_MERGED", str(match_mp4), status="READY", size_bytes=match_mp4.stat().st_size)
     update_match(match_id, state="FINALIZED", ended_at=utcnow_iso())
     print(f"FINALIZED {match_id} -> {output_dir_str}")
 
     # Ask to define court points (manual calibration) for this court
-    try:
-        reply = input("Define court points for this court now? [y/N]: ").strip().lower()
-    except EOFError:
+    if getattr(args, "no_calibrate_prompt", False):
         reply = "n"
+    else:
+        try:
+            reply = input("Define court points for this court now? [y/N]: ").strip().lower()
+        except EOFError:
+            reply = "n"
     if reply in ("y", "yes"):
         from src.pipeline.paths import court_calibration_dir
         from src.court.calibration.click_calibrate import calibrate_from_clicks
@@ -186,14 +192,21 @@ def cmd_run_match(args: argparse.Namespace) -> None:
         every_s=getattr(args, "every", 60.0),
         max_clips=getattr(args, "max_clips", 10),
     )
+    track_tracker = getattr(args, "tracker", None)
+    if getattr(args, "same_kit", False) and track_tracker is None:
+        track_tracker = "config/trackers/botsort_padel_same_kit.yaml"
     path = run_match(
         match_id,
         cfg,
-        track_sample_every_n_frames=getattr(args, "sample_every", 5),
-        track_conf=getattr(args, "conf", 0.4),
+        track_sample_every_n_frames=getattr(args, "sample_every", 1),
+        track_conf=getattr(args, "conf", 0.25),
         track_iou=getattr(args, "iou", 0.5),
-        track_tracker=getattr(args, "tracker", None),
+        track_tracker=track_tracker,
         track_detection_model=getattr(args, "detection_model", None),
+        track_use_roi=getattr(args, "use_roi", False),
+        track_detection_only=getattr(args, "detection_only", False),
+        track_skip_first_seconds=getattr(args, "skip_first_seconds", 0.0),
+        track_use_pose=getattr(args, "use_pose", False),
     )
     print(f"Highlights: {path}")
 
@@ -245,10 +258,12 @@ def main() -> None:
     p_ing = sub.add_parser("ingest-match", help="Ingest video and create FINALIZED match; then optionally define court points")
     p_ing.add_argument("--court_id", default="court_001")
     p_ing.add_argument("--input", required=True, help="Path to input video")
+    p_ing.add_argument("--reencode", action="store_true", help="Re-encode to 1920×1080 @ 30fps (default: copy as-is for best detection)")
     p_ing.add_argument("--court_width_m", type=float, default=10.0, help="Court width in meters (for calibration prompt)")
     p_ing.add_argument("--court_height_m", type=float, default=20.0, help="Court height in meters (for calibration prompt)")
     p_ing.add_argument("--calibrate_points", type=int, default=12, choices=[4, 12], help="4 or 12 points when defining court (default 12)")
-    p_ing.set_defaults(func=cmd_ingest_match)
+    p_ing.add_argument("--no-calibrate-prompt", dest="no_calibrate_prompt", action="store_true", help="Skip interactive calibration prompt (for scripts and screen recordings)")
+    p_ing.set_defaults(func=cmd_ingest_match, no_calibrate_prompt=False)
 
     # run-match
     p_run = sub.add_parser("run-match", help="Run pipeline for a match")
@@ -256,12 +271,16 @@ def main() -> None:
     p_run.add_argument("--clip_len", type=float, default=12.0)
     p_run.add_argument("--every", type=float, default=60.0)
     p_run.add_argument("--max_clips", type=int, default=10)
-    p_run.add_argument("--sample_every", type=int, default=5, help="Track every N frames")
-    p_run.add_argument("--conf", type=float, default=0.4, help="Detection confidence threshold")
+    p_run.add_argument("--sample_every", type=int, default=1, help="Track every N frames (1=every frame, densest; 2–5 faster)")
+    p_run.add_argument("--conf", type=float, default=0.2, help="Detection confidence threshold (default 0.2 to catch all 4; lower=more boxes, higher=stricter)")
     p_run.add_argument("--iou", type=float, default=0.5, help="NMS IoU threshold")
-    p_run.add_argument("--tracker", default=None, help="Tracker config e.g. bytetrack.yaml (default: BoT-SORT)")
-    p_run.add_argument("--detection-model", dest="detection_model", default=None, help="Path to custom YOLO .pt weights (trained model); overrides COURTFLOW_DETECTION_MODEL; if unset uses pretrained")
-    p_run.set_defaults(func=cmd_run_match)
+    p_run.add_argument("--tracker", default=None, help="Tracker config (default: ByteTrack, no ReID). Use botsort_padel.yaml for BoT-SORT with ReID")
+    p_run.add_argument("--same-kit", dest="same_kit", action="store_true", help="Players wear same kit (1&2, 3&4); use tracker without ReID to avoid ID swaps")
+    p_run.add_argument("--detection-model", dest="detection_model", default=None, help="Path to custom YOLO .pt weights; overrides COURTFLOW_DETECTION_MODEL; if unset uses models/best.pt when present else pretrained")
+    p_run.add_argument("--roi", dest="use_roi", action="store_true", help="Filter detections by court ROI (default: no ROI, keep top 4 by confidence so 4th player is not cut off)")
+    p_run.add_argument("--detection-only", dest="detection_only", action="store_true", help="Run detection only (no tracker); same boxes as best.pt alone, assign 1-4 by position each frame")
+    p_run.add_argument("--pose", dest="use_pose", action="store_true", help="Refine ground point with pose model (ankles/knees) for less jitter; requires yolov8n-pose.pt")
+    p_run.set_defaults(func=cmd_run_match, use_roi=False)
 
     # daily-check
     p_daily = sub.add_parser("daily-check", help="Process all FINALIZED matches")

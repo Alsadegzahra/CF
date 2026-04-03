@@ -55,11 +55,15 @@ def run_match(
     match_id: str,
     cfg: Optional[HighlightConfig] = None,
     *,
-    track_sample_every_n_frames: int = 5,
-    track_conf: float = 0.4,
+    track_sample_every_n_frames: int = 1,
+    track_conf: float = 0.2,
     track_iou: float = 0.5,
     track_tracker: Optional[str] = None,
     track_detection_model: Optional[str] = None,
+    track_use_roi: bool = False,
+    track_detection_only: bool = False,
+    track_skip_first_seconds: float = 0.0,
+    track_use_pose: bool = False,
 ) -> Path:
     """
     Run full pipeline for one match: load match from DB, ensure dirs, run stages 01–06,
@@ -108,11 +112,15 @@ def run_match(
             iou=track_iou,
             tracker=track_tracker,
             detection_model=track_detection_model,
+            use_roi=track_use_roi,
+            detection_only=track_detection_only,
+            skip_first_seconds=track_skip_first_seconds,
+            use_pose=track_use_pose,
         )
         print("\n[03] Coordinate mapping")
         stages.stage_03_map(out_dir, match["court_id"])
         print("\n[04] Analytics report")
-        stages.stage_04_report(out_dir, match)
+        stages.stage_04_report(out_dir, match, detection_only=track_detection_only)
         print("\n[05] Render overlays")
         stages.stage_05_renders(out_dir, video_path)
         print("\n[06] Export highlights")

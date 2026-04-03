@@ -1,0 +1,10 @@
+# ByteTrack with longer track retention for matches with long occlusions.
+# Use when players leave frame (e.g. near door) and IDs drop; try --tracker config/trackers/bytetrack_padel_long_buffer.yaml
+
+tracker_type: bytetrack
+track_buffer: 180
+track_high_thresh: 0.3
+track_low_thresh: 0.1
+new_track_thresh: 0.3
+match_thresh: 0.7
+fuse_score: True

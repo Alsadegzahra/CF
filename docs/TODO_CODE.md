@@ -112,15 +112,33 @@ Prioritized list to improve the codebase. Pipeline and product shape are stable;
 
 ---
 
+## 10. Run & review (best.pt)
+
+| Priority | Item | Notes |
+|----------|------|--------|
+| High | **12b. Run a match and review the video** | In CourtFlow, run a full match (video in, video out) using `best.pt`. Watch the output video: check that players are detected (boxes/IDs), tracking is stable, and there are no obvious misses or false detections. If something looks off, note it and improve the dataset → retrain → replace best.pt (see “After training” and todo 1–10). |
+
+---
+
+## 11. Optional: Pose (skeleton / keypoints)
+
+| Priority | Item | Notes |
+|----------|------|--------|
+| Medium | **13. Add pose estimation** | Run a pose model (e.g. **YOLOv8-pose**, **YOLO26-pose**, or **MediaPipe Pose**) on top of detection to get keypoints per person (head, shoulders, hips, knees, ankles, etc.). Use **ankle (or toe) keypoints** as the actual “feet” position for court position, heatmaps, or movement analysis (more accurate than bbox bottom-center). Pipeline: detect persons (best.pt) → for each box, crop or use full frame → run pose model → read keypoints (e.g. ankles). Implement in CourtFlow: wire detection + pose; handle “no person” / failed pose; if speed is an issue, run pose every 2nd–3rd frame or only on the 2–4 tracked players. |
+
+---
+
 ## Suggested order of work
 
 1. **Tests** – Add a minimal test suite so refactors are safe.  
 2. **Intelligence** – Tune detection/tracking and ROI (biggest impact on accuracy).  
-3. **Ball + padel** – Ball pipeline then wire into padel analytics.  
-4. **Tracks DB** – If you want queryable tracks or less JSON I/O.  
-5. **Calibration** – Capture + auto-fix when you need better calibration UX.  
-6. **Error handling** – Timeouts and failure paths.  
-7. **Rest** – Geometry, cloud API, OpenAPI, diagrams as needed.
+3. **12b. Run & review** – Run a full match with `best.pt`, watch output video (boxes/IDs, stable tracking, no obvious misses/false detections); iterate dataset → retrain → replace best.pt if needed.  
+4. **Ball + padel** – Ball pipeline then wire into padel analytics.  
+5. **Tracks DB** – If you want queryable tracks or less JSON I/O.  
+6. **Calibration** – Capture + auto-fix when you need better calibration UX.  
+7. **Error handling** – Timeouts and failure paths.  
+8. **Optional: Pose (13)** – Add pose model (YOLO-pose / MediaPipe), use ankle keypoints for feet position.  
+9. **Rest** – Geometry, cloud API, OpenAPI, diagrams as needed.
 
 ---
 

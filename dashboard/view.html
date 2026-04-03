@@ -62,6 +62,8 @@
       background: var(--card); border: 1px solid var(--border); border-radius: 0.375rem; padding: 1rem;
     }
     .player-card h4 { font-size: 0.8125rem; font-weight: 600; margin: 0 0 0.75rem 0; color: var(--text); }
+    .player-card-header { display: flex; align-items: center; gap: 0.75rem; margin-bottom: 0.75rem; }
+    .player-thumb { width: 3rem; height: 4rem; object-fit: cover; border-radius: 0.25rem; border: 1px solid var(--border); background: var(--surface); }
     .player-stats { display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem; margin-bottom: 0.75rem; font-size: 0.8125rem; }
     .player-stats .label { color: var(--text-muted); }
     .player-stats .val { font-weight: 500; }
@@ -143,11 +145,12 @@
             <span class="hero-main" id="hero-duration">—</span>
             <span class="badge" id="hero-status">Completed</span>
           </div>
+          <p class="hero-insight" id="hero-insight" style="margin: 0 0 1rem 0; font-size: 0.875rem; color: var(--text-muted);"></p>
           <div class="stat-row" id="hero-stats">
             <div class="stat"><div class="label">Total Distance</div><div class="value" id="stat-distance">—</div></div>
-            <div class="stat"><div class="label">Avg Speed</div><div class="value" id="stat-avg-speed">—</div></div>
-            <div class="stat"><div class="label">Total Points</div><div class="value" id="stat-points">—</div></div>
-            <div class="stat"><div class="label">Active Play Time</div><div class="value" id="stat-active-time">—</div></div>
+            <div class="stat"><div class="label">Collective speed (m/h)</div><div class="value" id="stat-avg-speed">—</div></div>
+            <div class="stat"><div class="label">Track points</div><div class="value" id="stat-points">—</div></div>
+            <div class="stat"><div class="label">Active play time</div><div class="value" id="stat-active-time">—</div></div>
           </div>
           <div class="stat-row" style="margin-top: 0.75rem;">
             <div class="stat"><div class="label">Players detected</div><div class="value" id="stat-players">—</div></div>
@@ -159,23 +162,27 @@
       <!-- 3. Player Performance -->
       <section class="section">
         <div class="section-title">Player performance</div>
+        <p class="section-desc" style="margin: -0.5rem 0 0.75rem 0; font-size: 0.8125rem; color: var(--text-muted);">Distance, active time and share of movement by player.</p>
         <div class="player-grid" id="player-grid"></div>
       </section>
 
       <!-- 4. Spatial Heatmap -->
       <section class="section">
         <div class="section-title">Spatial heatmap</div>
+        <p class="section-desc" style="margin: -0.5rem 0 0.75rem 0; font-size: 0.8125rem; color: var(--text-muted);">Where players spent time on court (density: low → high).</p>
         <div class="heatmap-card">
           <div class="heatmap-toolbar">
-            <button type="button" class="heatmap-toggle active" data-view="all">All Players</button>
-            <button type="button" class="heatmap-toggle" data-view="1">Player 1</button>
-            <button type="button" class="heatmap-toggle" data-view="2">Player 2</button>
+            <button type="button" class="heatmap-toggle active" data-view="all">All</button>
+            <button type="button" class="heatmap-toggle" data-view="1">P1</button>
+            <button type="button" class="heatmap-toggle" data-view="2">P2</button>
+            <button type="button" class="heatmap-toggle" data-view="3">P3</button>
+            <button type="button" class="heatmap-toggle" data-view="4">P4</button>
           </div>
           <div class="heatmap-wrap">
             <img id="heatmap-img" src="" alt="Court heatmap">
             <p id="heatmap-unavailable" class="heatmap-unavailable" style="display: none;">Heatmap not available for this match.</p>
           </div>
-          <p class="heatmap-legend">Density scale: low → high. Single heatmap (all players) in Phase 1; per-player view is future.</p>
+          <p class="heatmap-legend">Single combined heatmap in Phase 1; per-player toggles (P1–P4) reserved for future.</p>
         </div>
       </section>
 
@@ -327,9 +334,10 @@
             : '—';
           document.getElementById('stat-avg-speed').textContent = avgSpeed;
           document.getElementById('stat-points').textContent = summary.total_track_points != null ? summary.total_track_points : '—';
-          document.getElementById('stat-active-time').textContent = summary.total_duration_s != null ? summary.total_duration_s + ' s' : '—';
+          document.getElementById('stat-active-time').textContent = summary.total_duration_s != null ? fmtDuration(summary.total_duration_s) : '—';
           document.getElementById('stat-players').textContent = summary.num_players != null ? summary.num_players : '—';
           document.getElementById('stat-rallies').textContent = '—';
+          document.getElementById('hero-insight').textContent = summary.insight || '';
 
           // Players
           const players = report.players || {};
@@ -337,12 +345,19 @@
           const playerGrid = document.getElementById('player-grid');
           playerGrid.innerHTML = playerIds.slice(0, 20).map(function (pid) {
             const p = players[pid];
+            const thumbUrl = API_BASE + '/matches/' + encodeURIComponent(matchId) + '/player-thumb/' + encodeURIComponent(pid);
+            const rank = p.rank_by_distance != null ? p.rank_by_distance : '';
+            const share = p.share_of_distance_pct != null ? p.share_of_distance_pct + '%' : '';
+            const durationStr = p.duration_s != null ? fmtDuration(p.duration_s) : '—';
             return '<div class="player-card">' +
-              '<h4>Player ' + pid + '</h4>' +
+              '<div class="player-card-header">' +
+              '<img class="player-thumb" src="' + thumbUrl + '" alt="Player ' + pid + '" onerror="this.style.display=\'none\'">' +
+              '<h4>Player ' + pid + (rank ? ' <span class="badge" style="font-size:0.65rem;margin-left:0.25rem">' + rank + '</span>' : '') + '</h4>' +
+              '</div>' +
               '<div class="player-stats">' +
-              '<span class="label">Distance</span><span class="val">' + (p.distance != null ? p.distance + ' m' : '—') + '</span>' +
+              '<span class="label">Distance</span><span class="val">' + (p.distance != null ? p.distance + ' m' : '—') + (share ? ' <span style="color:var(--text-muted)">(' + share + ')</span>' : '') + '</span>' +
               '<span class="label">Avg speed</span><span class="val">' + (p.avg_speed != null ? p.avg_speed : '—') + '</span>' +
-              '<span class="label">Active duration</span><span class="val">' + (p.duration_s != null ? p.duration_s + ' s' : '—') + '</span>' +
+              '<span class="label">Active time</span><span class="val">' + durationStr + '</span>' +
               '<span class="label">Points</span><span class="val">' + (p.point_count != null ? p.point_count : '—') + '</span>' +
               '</div>' +
               '<div class="sparkline">' + sparklineSvg(p.point_count) + '</div>' +
@@ -370,17 +385,31 @@
             heatmapImg.src = heatmapApiUrl;
             heatmapImg.style.display = '';
           };
+          function setHeatmapView(view) {
+            const base = API_BASE + '/matches/' + encodeURIComponent(matchId) + '/report/heatmap';
+            const url = (view === 'all' || !view) ? base : base + '?player_id=' + view;
+            heatmapImg.dataset.fallbackTried = '';
+            heatmapImg.src = url;
+            heatmapImg.style.display = '';
+            if (heatmapUnavail) heatmapUnavail.style.display = 'none';
+          }
           if (cloudUrls.heatmap_url) {
             heatmapImg.dataset.fallbackTried = '';
             heatmapImg.src = cloudUrls.heatmap_url;
           } else {
-            heatmapImg.src = heatmapApiUrl;
+            setHeatmapView('all');
           }
           heatmapImg.style.display = '';
           document.querySelectorAll('.heatmap-toggle').forEach(function (btn) {
             btn.onclick = function () {
               document.querySelectorAll('.heatmap-toggle').forEach(function (b) { b.classList.remove('active'); });
               btn.classList.add('active');
+              const view = btn.getAttribute('data-view');
+              if (cloudUrls.heatmap_url && view === 'all') {
+                heatmapImg.src = cloudUrls.heatmap_url;
+              } else {
+                setHeatmapView(view);
+              }
             };
           });
 
@@ -399,7 +428,9 @@
           } else {
             videoEl.style.display = 'none';
           }
-          const exported = report.exported_highlights || [];
+          const exported = report.exported_highlights && report.exported_highlights.length > 0
+            ? report.exported_highlights
+            : (report.highlights || []);
           if (exported.length > 0) {
             highlightsPlaceholder.style.display = 'none';
             segmentList.innerHTML = exported.map(function (seg, i) {

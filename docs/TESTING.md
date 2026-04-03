@@ -28,9 +28,11 @@ If not installed, stage 02 writes empty tracks and the pipeline continues.
 You should see:
 
 - `[01] Load calibration` → “No calibration for this court” or “✓ Calibration OK”
-- `[02] Player detection + tracking` → “✓ Tracked N points from M frames (K players)” or “(skip) Vision deps missing”
+- `[02] Player detection + tracking` → “✓ Tracked N points from M frames (**4 players**)” or “(skip) Vision deps missing”
 - `[03]` … `[06]` → “✓ Report written”, “✓ Highlights”
 - `data/matches/<match_id>/tracks/tracks.json`, `reports/report.json`, `highlights/highlights.mp4`
+
+**4-player tracking:** The pipeline keeps at most 4 detections per frame (closest to court center) and maps all track IDs to canonical players 1–4. So you should always see “4 players” in the summary. To verify: open `reports/report.json` and check `summary.num_players` is 4 and `players` has keys `"1"`, `"2"`, `"3"`, `"4"`.
 
 ---
 

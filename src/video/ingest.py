@@ -26,11 +26,21 @@ def ingest_file_to_mp4(
     height: int = 1080,
     video_bitrate: str = "8M",
     audio_bitrate: str = "128k",
+    copy_only: bool = True,
 ) -> Path:
-    """Re-encode a file to a single match.mp4. Creates parent dirs."""
-    _check_ffmpeg()
+    """
+    Write input video to output_mp4. Creates parent dirs.
+    Default: copy_only=True — copy as-is (no re-encode). Faster, no quality loss, same pixels as
+    source so detection/tracking matches model training. Use copy_only=False to re-encode to
+    width×height @ fps (e.g. 1920×1080 @ 30) for normalized playback. See docs/DETECTION_AND_TRACKING_OPTIONS.md.
+    """
     ensure_dirs()
     ensure_dir(output_mp4.parent)
+    if copy_only:
+        import shutil
+        shutil.copy2(str(input_path), str(output_mp4))
+        return output_mp4
+    _check_ffmpeg()
     cmd = [
         "ffmpeg", "-y", "-i", str(input_path),
         "-c:v", "libx264", "-b:v", video_bitrate, "-preset", "veryfast",

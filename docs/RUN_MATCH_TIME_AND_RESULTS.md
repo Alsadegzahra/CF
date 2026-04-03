@@ -4,8 +4,8 @@
 
 The pipeline runs six stages. The slow part is usually **stage 02 (player detection + tracking)**:
 
-- The video is read frame by frame. Every **N**th frame (default `--sample_every 5`) is run through YOLO + tracker.
-- A 10‑minute video at 30 fps has ~18,000 frames; with `sample_every=5` that’s ~3,600 inference steps. On CPU, each step can take a few hundred ms, so the whole stage can take **many minutes** (or more for long videos or heavy models).
+- The video is read frame by frame. Every **N**th frame (default `--sample_every 1`, every frame) is run through YOLO + tracker.
+- A 10‑minute video at 30 fps has ~18,000 frames; with `sample_every=1` that’s all 18,000 steps (densest tracking, slowest). On CPU, each step can take a few hundred ms, so the whole stage can take **many minutes** (or more for long videos or heavy models).
 - Stages 03–06 (mapping, report, overlays, highlights) are usually faster but add more time.
 
 So yes, **it’s normal for run-match to take a long time**, especially with a custom/pose model or on CPU. You should see progress lines like:
@@ -22,10 +22,16 @@ If you don’t see any output for a long time, the process is still working on t
 
 ---
 
+## Sampling: accuracy vs speed
+
+- **Default is 1** (every frame) for densest tracking and best ID stability.
+- **To speed up:** use `--sample_every 2` or `5` (fewer frames, faster run).
+- **To speed up:** use `--sample_every 5` or `10` (fewer frames, faster run).
+
 ## How to speed it up
 
 1. **Sample fewer frames**  
-   `--sample_every 10` or `15` processes fewer frames (faster, slightly less smooth tracks).
+   `--sample_every 5` or `10` processes fewer frames (faster, slightly less smooth tracks).
 2. **Use the default pretrained YOLO (YOLO26)**  
    Don’t pass `--detection-model` and don’t set `COURTFLOW_DETECTION_MODEL`. Then CourtFlow uses **yolo26n.pt** (or yolov8n.pt), which is smaller and faster than a custom pose model.
 3. **Use a GPU**  

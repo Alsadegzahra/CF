@@ -68,6 +68,7 @@ The first-time calibration matches this pipeline:
 
 ### 1. Manual calibration (once per court)
 
+- **Reminder:** When calibrating, check the **glass** (camera view / lens orientation) so that players appear **vertical** (upright) in the image. If the camera is tilted or the view is rotated, the homography and tracking will be off; correct the camera or re-calibrate after fixing.
 - Someone runs the **manual calibration** for that court:
   - **Click 4 court corners (true manual):**  
     `python3 -m src.app.cli calibrate-court --court_id <id> --image <path>`  
