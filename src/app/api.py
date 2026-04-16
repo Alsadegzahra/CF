@@ -7,8 +7,9 @@ from __future__ import annotations
 from pathlib import Path
 from typing import List, Optional
 
-from fastapi import FastAPI, HTTPException
-from fastapi.responses import FileResponse
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
 from pydantic import BaseModel
 
 from src.config.settings import PROJECT_ROOT
@@ -17,6 +18,13 @@ from src.utils.io import read_json
 
 
 app = FastAPI(title="CourtFlow API", version="0.1.0")
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 
 class MatchOut(BaseModel):
@@ -44,22 +52,47 @@ class ArtifactOut(BaseModel):
     updated_at: str
 
 
-def _landing_path() -> Path:
-    """Find landing.html: repo root (from settings) or cwd (for some hosts)."""
-    for base in (PROJECT_ROOT, Path.cwd()):
-        p = base / "dashboard" / "landing.html"
-        if p.exists():
-            return p
-    return PROJECT_ROOT / "dashboard" / "landing.html"  # fail with clear 404
+def _react_dashboard_dist() -> Path:
+    return PROJECT_ROOT / "dashboard" / "web" / "dist"
+
+
+def _react_dashboard_built() -> bool:
+    d = _react_dashboard_dist()
+    return d.is_dir() and (d / "index.html").is_file()
+
+
+def _html_react_build_missing() -> str:
+    """Shown at / when dashboard/web/dist is missing (e.g. fresh clone before build)."""
+    return """<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>CourtFlow — build the dashboard</title>
+<style>
+body{font-family:system-ui,sans-serif;max-width:36rem;margin:3rem auto;padding:0 1rem;line-height:1.5;color:#1e293b}
+code{background:#f1f5f9;padding:0.15rem 0.35rem;border-radius:4px;font-size:0.9rem}
+pre{background:#0f172a;color:#e2e8f0;padding:1rem;border-radius:8px;overflow:auto;font-size:0.85rem}
+a{color:#2563eb}</style></head><body>
+<h1>CourtFlow React UI is not built here</h1>
+<p>The screen with <strong>language options</strong>, <strong>Try demo</strong>, and the <strong>three tabs</strong> lives at <a href="/app/"><code>/app/</code></a>.
+That needs a production build of <code>dashboard/web</code>.</p>
+<p>From the repo root run:</p>
+<pre>npm install
+npm run build
+python3 -m uvicorn src.app.api:app --reload</pre>
+<p>Then open <a href="/app/">http://127.0.0.1:8000/app/</a> (or refresh <a href="/">/</a> — it redirects when <code>dist/</code> exists).</p>
+<p><strong>Development</strong> (hot reload): in another terminal run <code>npm run dev</code> and use <a href="http://127.0.0.1:5173/">http://127.0.0.1:5173/</a> with the API still on port 8000.</p>
+<p><a href="/docs">API docs</a></p>
+</body></html>"""
 
 
 @app.get("/", tags=["meta"])
-def root() -> FileResponse:
-    """Main page: enter match ID to open the dashboard."""
-    path = _landing_path()
-    if not path.exists():
-        raise HTTPException(status_code=404, detail="landing.html not found")
-    return FileResponse(path, media_type="text/html")
+def root():
+    """
+    Redirect to the React app at /app/ when `dashboard/web/dist` exists (languages, tabs, Try demo).
+    If dist is missing, show build instructions — not the legacy static landing card.
+    """
+    if _react_dashboard_built():
+        return RedirectResponse(url="/app/", status_code=302)
+    return HTMLResponse(content=_html_react_build_missing(), status_code=200)
 
 
 @app.get("/health", tags=["meta"])
@@ -68,11 +101,15 @@ def health() -> dict:
 
 
 @app.get("/view", tags=["ui"])
-def view_dashboard() -> FileResponse:
+def view_dashboard(request: Request):
     """
-    User dashboard: one URL. Open with ?match_id=xxx and optional ?court_id=xxx.
-    Example: /view?match_id=match_2026_02_25_022906
+    Legacy URL: redirect to the React dashboard at /app when built (`npm run build`).
+    Preserves ?match_id=…&court_id=…. Otherwise serve legacy view.html.
     """
+    if _react_dashboard_built():
+        q = request.url.query
+        target = f"/app/?{q}" if q else "/app/"
+        return RedirectResponse(url=target, status_code=302)
     path = PROJECT_ROOT / "dashboard" / "view.html"
     if not path.exists():
         raise HTTPException(status_code=404, detail="view.html not found")
@@ -170,6 +207,25 @@ def get_match_report(match_id: str) -> dict:
         if report:
             return report
     raise HTTPException(status_code=404, detail="Report not found")
+
+
+@app.get("/matches/{match_id}/report.pdf", tags=["reports"])
+def get_match_report_pdf(match_id: str):
+    """Serve printable report.pdf (generated with report.json)."""
+    row = db.get_match(match_id)
+    if not row:
+        raise HTTPException(status_code=404, detail="Match not found")
+    pdf_path = Path(row["output_dir"]) / "reports" / "report.pdf"
+    if not pdf_path.exists():
+        raise HTTPException(
+            status_code=404,
+            detail="report.pdf not found — run pipeline (stage 04) after installing fpdf2",
+        )
+    return FileResponse(
+        pdf_path,
+        media_type="application/pdf",
+        filename=f"{match_id}-report.pdf",
+    )
 
 
 @app.get("/matches/{match_id}/report/heatmap", tags=["reports"])
@@ -303,3 +359,14 @@ def post_match_cloud_upload(match_id: str) -> dict:
         except Exception:
             result["urls"][k] = None
     return result
+
+
+_web_dist = _react_dashboard_dist()
+if _react_dashboard_built():
+    from fastapi.staticfiles import StaticFiles
+
+    app.mount(
+        "/app",
+        StaticFiles(directory=str(_web_dist), html=True),
+        name="courtflow_react_ui",
+    )
