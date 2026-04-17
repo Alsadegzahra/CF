@@ -1,15 +1,14 @@
 # CourtFlow
 
-Turn raw match video into analytics and highlight videos. Pipeline: ingest → detect & track → map to court → report + heatmap + highlights. Data in `data/courts/` and `data/matches/`.
+Turn raw match video into analytics and highlight videos. Pipeline: ingest → detect & track → map to court → report + heatmap + highlights. Data under `data/courts/` and `data/matches/` (gitignored).
 
 ---
 
 ## What’s in the repo
 
 - **CLI:** `ingest-match`, `run-match`, `calibrate-court`, `upload-match` (R2)
-- **API (FastAPI):** matches, report, artifacts, cloud URLs; serves user dashboard at `/view`
-- **User dashboard:** `/view?match_id=xxx` — report, heatmap, highlights (shareable link)
-- **Ops dashboard (Streamlit):** full view of matches, tracks, report, uploads
+- **API (FastAPI):** matches, report, artifacts, cloud URLs; serves the React dashboard at `/` (`/view?…` redirects to the same UI)
+- **User dashboard:** React SPA in `dashboard/web` — `npm run build` then open `/?match_id=xxx` or `/view?match_id=xxx`
 - **Cloud:** Cloudflare R2 for highlights + report; presigned links
 
 ---
@@ -20,63 +19,57 @@ Turn raw match video into analytics and highlight videos. Pipeline: ingest → d
 pip install -r requirements.txt
 cp .env.example .env   # optional: add R2_* for cloud
 
-# Ingest video → run pipeline → view (classic HTML)
 python3 -m src.app.cli ingest-match --court_id court_001 --input /path/to/video.mp4
 python3 -m src.app.cli run-match
 python3 -m uvicorn src.app.api:app --reload
-# Open http://127.0.0.1:8000/view?match_id=<match_id>
+# After `npm run build` in dashboard/web: http://127.0.0.1:8000/?match_id=<match_id>
 ```
 
-**React dashboard (`dashboard/web`) with a real file (e.g. `sample2.mp4`):**
+**React dashboard with a real file:**
 
 ```bash
-# One-shot ingest + pipeline (non-interactive); prints match_id and URLs
 python3 scripts/run_video_through_pipeline.py --input ~/Desktop/sample2.mp4 --court_id court_002
-
-# Terminal A — API (serves JSON + React SPA at /)
-python3 -m uvicorn src.app.api:app --reload
-
-# Terminal B — Vite dev UI (proxies /matches → API)
-npm run dev
-# Open http://127.0.0.1:5173/?match_id=<match_id_from_script>
+# Terminal A: uvicorn …  Terminal B: npm run dev  → http://127.0.0.1:5173/?match_id=<id>
 ```
 
-**Ship the React UI from the same process as the API:** `npm run build`, then open `http://127.0.0.1:8000/?match_id=<id>` (SPA + `/assets/*` from `dashboard/web/dist`).
+**Ship the UI with the API:** from repo root, `npm run build` (or `cd dashboard/web && npm run build`). FastAPI serves `dashboard/web/dist` at `/` and `/assets/*`.
 
-**If run-match is slow:** Stage 02 (detection) is the heavy part. See [docs/RUN_MATCH_TIME_AND_RESULTS.md](docs/RUN_MATCH_TIME_AND_RESULTS.md).
+**Slow `run-match`:** stage 02 (detection / YOLO) is usually the bottleneck.
 
-**Custom detection model:** Put `best.pt` in `models/` and use `--detection-model models/best.pt`. See [models/README.md](models/README.md).
+**Custom detection weights:** put `best.pt` in `models/` (see `models/README.md`). Override with `--detection-model` or `COURTFLOW_DETECTION_MODEL`.
 
 ---
 
-## How to run (summary)
+## Commands (summary)
 
 | Step | Command |
 |------|--------|
-| Calibrate court (stub) | `python3 -m src.app.cli calibrate-court --court_id court_001` |
+| Calibrate court | `python3 -m src.app.cli calibrate-court --court_id court_001` (see `--help` for image / video options) |
 | Ingest match | `python3 -m src.app.cli ingest-match --court_id court_001 --input <video>` |
 | Run pipeline | `python3 -m src.app.cli run-match` or `--match_id <id>` |
-| API | `uvicorn src.app.api:app --reload` → http://127.0.0.1:8000/docs ; **http://127.0.0.1:8000/** serves the React UI when `dist/` is built |
-| Ops dashboard | `streamlit run dashboard/app.py` |
-| User dashboard (React, **recommended**) | `npm run build` → http://127.0.0.1:8000/?match_id=\<id\> (same UI as Vite dev) |
-| User dashboard (React dev) | `npm run dev` → http://127.0.0.1:5173/?match_id=\<id\> (API on :8000) |
-| Legacy `/view` | Redirects to `/…` when `dashboard/web/dist` exists; else old `view.html` |
+| API | `uvicorn src.app.api:app --reload` → http://127.0.0.1:8000/docs ; `/` = dashboard when `dist/` exists |
+| Dashboard (dev) | `npm run dev` → http://127.0.0.1:5173/?match_id=… |
 | Upload to R2 | `python3 -m src.app.cli upload-match --match_id <id>` |
 
 ---
 
-## Deploy
+## Deploy (e.g. Render)
 
-Upload a match to R2, then deploy the API (Render, Railway, or Docker). Set env: `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `R2_BUCKET`, `R2_ACCOUNT_ID`.  
-**Full steps:** [DEPLOY.md](DEPLOY.md).
+1. **Upload at least one match to R2** from your machine (`.env` with R2 vars):  
+   `python3 -m src.app.cli upload-match --match_id <your_match_id>`
+2. **Web service:** repo root, Python 3, **Build:** `pip install -r requirements.txt`, **Start:** `uvicorn src.app.api:app --host 0.0.0.0 --port $PORT`
+3. **Environment variables:** `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `R2_BUCKET`, `R2_ACCOUNT_ID` (same as local `.env`). Do not set `PORT` on Render.
+4. **Open:** `https://<your-service>.onrender.com/view?match_id=<id>` or `/?match_id=<id>` (same React app). API docs: `/docs`.
+
+**Docker:** `docker build -t courtflow .` then run with `PORT` set; image uses `requirements.txt` and serves the API + committed `dashboard/web/dist`.
 
 ---
 
-## Docs and structure
+## Repo layout
 
-- **Docs index:** [docs/README.md](docs/README.md) — testing, calibration, detection training, run time, contracts
-- **Pipeline:** `src/pipeline/match_runner.py` → stages 01–06 in `src/pipeline/stages.py`
-- **Contracts:** `src/domain/models.py`, `src/domain/report_contract.py`
-- **Cloud:** [DEPLOY.md](DEPLOY.md) and R2 section in docs
+- **Pipeline:** `src/pipeline/match_runner.py` → stages in `src/pipeline/stages.py`
+- **Domain / report shapes:** `src/domain/models.py`, `src/domain/report_contract.py`
+- **Tracker configs:** `config/trackers/*.yaml` (pass `--tracker` on `run-match`)
+- **Training notebook:** `training/` (Colab YOLO for person detection)
 
-Python 3.9+ · FastAPI, OpenCV, FFmpeg, Ultralytics (YOLO), SQLite, Streamlit.
+Python 3.9+ · FastAPI, OpenCV, FFmpeg, Ultralytics (YOLO), SQLite; React (Vite) for the web UI.

@@ -11,7 +11,6 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY src/ ./src/
 COPY dashboard/ ./dashboard/
-COPY pyproject.toml ./
 
 ENV PORT=8000
 EXPOSE 8000

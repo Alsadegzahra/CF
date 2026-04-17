@@ -6,7 +6,7 @@ Default BoT-SORT does: emb_dists[dists_mask] = 1.0 then dists = min(iou, emb),
 so after long occlusion both iou and emb can be bad → min(1, 1) = 1 → new ID.
 We use ReID only when IoU is *very* bad (e.g. > 0.9), so we re-attach after true
 occlusion but keep original behavior for moderate IoU (avoids jitter/wrong matches).
-See docs/TRACKING_REID_NOTES.md.
+See `REID_ONLY_IOU_DIST_THRESH` below and Ultralytics BoT-SORT association behavior.
 """
 from __future__ import annotations
 

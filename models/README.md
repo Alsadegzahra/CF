@@ -13,9 +13,9 @@ Default is pretrained YOLO (YOLO26n / YOLOv8n). To use a **trained model** (e.g.
 The model is **detection only** (person bounding boxes per frame). CourtFlow runs its **tracker** on top to get stable player IDs. Support for 2, 3, or 4 players is handled by pipeline logic (canonical 4 players; filter by ROI / court center).
 
 **Requirements:** Ultralytics `.pt`, **person/player as class 0**.  
-Training: [docs/DETECTION_TRAINING.md](../docs/DETECTION_TRAINING.md).
+**Training:** use YOLO detection format (`data.yaml`, `images/train`, `images/val`, `labels/…`); see `training/README.md` and the Colab notebook in `training/`.
 
-**Same results as testing best.pt alone?** Use default ingest (copy as-is) and run with defaults (no ROI, conf 0.25). See [docs/DETECTION_AND_TRACKING_OPTIONS.md](../docs/DETECTION_AND_TRACKING_OPTIONS.md).
+**Matching a raw Ultralytics test:** use default ingest (copy as-is) and `run-match` defaults (e.g. conf 0.25) unless you intentionally change ROI or thresholds.
 
 ## Ball weights (optional, separate file)
 

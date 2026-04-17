@@ -32,7 +32,7 @@ def ingest_file_to_mp4(
     Write input video to output_mp4. Creates parent dirs.
     Default: copy_only=True — copy as-is (no re-encode). Faster, no quality loss, same pixels as
     source so detection/tracking matches model training. Use copy_only=False to re-encode to
-    width×height @ fps (e.g. 1920×1080 @ 30) for normalized playback. See docs/DETECTION_AND_TRACKING_OPTIONS.md.
+    width×height @ fps (e.g. 1920×1080 @ 30) for normalized playback (changes pixels vs training—use only when you intend that).
     """
     ensure_dirs()
     ensure_dir(output_mp4.parent)

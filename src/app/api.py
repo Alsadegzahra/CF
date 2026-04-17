@@ -115,17 +115,16 @@ def health() -> dict:
 @app.get("/view", tags=["ui"])
 def view_dashboard(request: Request):
     """
-    Legacy URL: redirect to the React dashboard at /app when built (`npm run build`).
-    Preserves ?match_id=…&court_id=…. Otherwise serve legacy view.html.
+    Bookmark-friendly URL: same dashboard as / (React SPA). Preserves ?match_id=…&court_id=….
     """
-    if _react_dashboard_built():
-        q = request.url.query
-        target = f"/?{q}" if q else "/"
-        return RedirectResponse(url=target, status_code=302)
-    path = PROJECT_ROOT / "dashboard" / "view.html"
-    if not path.exists():
-        raise HTTPException(status_code=404, detail="view.html not found")
-    return FileResponse(path, media_type="text/html")
+    if not _react_dashboard_built():
+        raise HTTPException(
+            status_code=503,
+            detail="Dashboard not built. From repo root: cd dashboard/web && npm ci && npm run build",
+        )
+    q = request.url.query
+    target = f"/?{q}" if q else "/"
+    return RedirectResponse(url=target, status_code=302)
 
 
 @app.get("/matches", response_model=List[MatchOut], tags=["matches"])
