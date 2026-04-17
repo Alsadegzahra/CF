@@ -14,6 +14,17 @@ import { translate } from "../i18n/strings";
 const STORAGE_LOCALE = "courtflow_locale";
 const STORAGE_NAMES = "courtflow_player_names";
 const STORAGE_TEAM_NAMES = "courtflow_team_names";
+/** Set when the user confirms language (this session); language screen shows until then. */
+const SESSION_LANG_GATE = "courtflow_lang_gate";
+
+function readLangGate(): boolean {
+  if (typeof window === "undefined") return false;
+  try {
+    return sessionStorage.getItem(SESSION_LANG_GATE) === "1";
+  } catch {
+    return false;
+  }
+}
 
 export type PlayerDisplayNames = Record<string, string>;
 
@@ -22,8 +33,8 @@ export type TeamDisplayNames = { A: string; B: string };
 
 type PreferencesContextValue = {
   locale: Locale;
-  /** False until a locale is loaded from storage or chosen on the language screen (after match id). */
-  hasChosenLanguage: boolean;
+  /** True after the user confirms language this browser session (sessionStorage). Until then, show the language screen first. */
+  languageGateDone: boolean;
   t: (key: string) => string;
   /** Custom display names by player id "1".."4" */
   playerDisplayNames: PlayerDisplayNames;
@@ -88,10 +99,10 @@ function applyDocumentLocale(locale: Locale) {
 
 export function PreferencesProvider({ children }: { children: ReactNode }) {
   const [localeState, setLocaleState] = useState<Locale | null>(() => readLocale());
+  const [languageGateDone, setLanguageGateDone] = useState<boolean>(() => readLangGate());
   const [playerDisplayNames, setPlayerDisplayNamesState] = useState<PlayerDisplayNames>(() => readPlayerNames());
   const [teamDisplayNames, setTeamDisplayNamesState] = useState<TeamDisplayNames>(() => readTeamNames());
 
-  const hasChosenLanguage = localeState !== null;
   const locale: Locale = localeState ?? "en";
 
   useLayoutEffect(() => {
@@ -111,6 +122,12 @@ export function PreferencesProvider({ children }: { children: ReactNode }) {
     }
     setLocaleState(l);
     applyDocumentLocale(l);
+    try {
+      sessionStorage.setItem(SESSION_LANG_GATE, "1");
+    } catch {
+      /* ignore */
+    }
+    setLanguageGateDone(true);
   }, []);
 
   const setPlayerDisplayNames = useCallback(
@@ -162,7 +179,7 @@ export function PreferencesProvider({ children }: { children: ReactNode }) {
   const value = useMemo<PreferencesContextValue>(
     () => ({
       locale,
-      hasChosenLanguage,
+      languageGateDone,
       t,
       playerDisplayNames,
       setPlayerDisplayNames,
@@ -174,7 +191,7 @@ export function PreferencesProvider({ children }: { children: ReactNode }) {
     }),
     [
       locale,
-      hasChosenLanguage,
+      languageGateDone,
       t,
       playerDisplayNames,
       setPlayerDisplayNames,

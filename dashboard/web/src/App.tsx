@@ -54,7 +54,7 @@ type AppMainProps = {
 
 function AppMain({ search, onOpenFriends, onOpenSavedMatches }: AppMainProps) {
   const { user } = useAuth();
-  const { t, hasChosenLanguage } = usePreferences();
+  const { t, languageGateDone } = usePreferences();
   const { params, setMatchParams, clearMatchParams, openDemoMatch } = search;
   const matchId = params.get("match_id")?.trim() || "";
   const courtId = params.get("court_id")?.trim() || "";
@@ -71,7 +71,7 @@ function AppMain({ search, onOpenFriends, onOpenSavedMatches }: AppMainProps) {
     state.status === "ok" && state.data.matchId === matchId.trim() ? state.data.courtLogoUrl : undefined;
   const shellCourtLogo = resolveCourtLogoUrl(courtId, reportCourtLogo);
 
-  if (!hasChosenLanguage) {
+  if (!languageGateDone) {
     return <LanguageSelect />;
   }
 
