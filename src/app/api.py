@@ -74,6 +74,10 @@ def root():
     return FileResponse(
         _react_dashboard_dist() / "index.html",
         media_type="text/html",
+        headers={
+            "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
+            "Pragma": "no-cache",
+        },
     )
 
 

@@ -71,6 +71,10 @@ function AppMain({ search, onOpenFriends, onOpenSavedMatches }: AppMainProps) {
     state.status === "ok" && state.data.matchId === matchId.trim() ? state.data.courtLogoUrl : undefined;
   const shellCourtLogo = resolveCourtLogoUrl(courtId, reportCourtLogo);
 
+  if (!hasChosenLanguage) {
+    return <LanguageSelect />;
+  }
+
   if (!matchId) {
     return (
       <div className="min-h-screen bg-cf-canvas">
@@ -92,10 +96,6 @@ function AppMain({ search, onOpenFriends, onOpenSavedMatches }: AppMainProps) {
         {user ? <RecentMatches onOpenMatch={(m, c) => setMatchParams(m, c)} /> : null}
       </div>
     );
-  }
-
-  if (!hasChosenLanguage) {
-    return <LanguageSelect />;
   }
 
   const shellCourt = state.status === "ok" ? state.data.courtId : courtId || "—";

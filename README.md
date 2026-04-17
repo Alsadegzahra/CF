@@ -61,6 +61,8 @@ python3 scripts/run_video_through_pipeline.py --input ~/Desktop/sample2.mp4 --co
 3. **Environment variables:** `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `R2_BUCKET`, `R2_ACCOUNT_ID` (same as local `.env`). Do not set `PORT` on Render.
 4. **Open:** `https://<your-service>.onrender.com/view?match_id=<id>` or `/?match_id=<id>` (same React app). API docs: `/docs`.
 
+**If the site still looks like an old dark “Enter Match ID” page:** Render is serving an older build or your browser cached HTML. On Render use **Manual Deploy → Clear build cache & deploy**; in the browser use a **hard refresh** (Shift+Reload) or an incognito window.
+
 **Docker:** `docker build -t courtflow .` then run with `PORT` set; image uses `requirements.txt` and serves the API + committed `dashboard/web/dist`.
 
 ---
@@ -70,6 +72,5 @@ python3 scripts/run_video_through_pipeline.py --input ~/Desktop/sample2.mp4 --co
 - **Pipeline:** `src/pipeline/match_runner.py` → stages in `src/pipeline/stages.py`
 - **Domain / report shapes:** `src/domain/models.py`, `src/domain/report_contract.py`
 - **Tracker configs:** `config/trackers/*.yaml` (pass `--tracker` on `run-match`)
-- **Training notebook:** `training/` (Colab YOLO for person detection)
 
 Python 3.9+ · FastAPI, OpenCV, FFmpeg, Ultralytics (YOLO), SQLite; React (Vite) for the web UI.
