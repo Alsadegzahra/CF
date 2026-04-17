@@ -112,6 +112,7 @@ def create_match(
 def update_match(
     match_id: str,
     *,
+    court_id: Optional[str] = None,
     state: Optional[str] = None,
     started_at: Optional[str] = None,
     ended_at: Optional[str] = None,
@@ -119,6 +120,9 @@ def update_match(
 ) -> None:
     now = utcnow_iso()
     fields, values = ["updated_at=?"], [now]
+    if court_id is not None:
+        fields.append("court_id=?")
+        values.append(court_id)
     if state is not None:
         fields.append("state=?")
         values.append(state)

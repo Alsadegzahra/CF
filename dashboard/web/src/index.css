@@ -1,0 +1,43 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html {
+    color-scheme: light;
+    -webkit-tap-highlight-color: transparent;
+  }
+  body {
+    @apply m-0 min-h-screen bg-cf-canvas text-cf-navy antialiased;
+    font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  }
+  html[dir="rtl"] body {
+    font-family: "Segoe UI", "Noto Sans Arabic", "Arabic UI Text", system-ui, sans-serif;
+  }
+  #root {
+    @apply min-h-screen;
+  }
+}
+
+/* Legacy inline-style components (Analysis / Replay tabs) */
+:root {
+  --cf-bg: #ffffff;
+  --cf-bg-subtle: #f8fafc;
+  --cf-surface: #f1f5f9;
+  --cf-surface-hover: #e2e8f0;
+  --cf-elevated: #ffffff;
+  --cf-border: #e2e8f0;
+  --cf-border-strong: #cbd5e1;
+  --cf-text: #0f172a;
+  --cf-text-secondary: #475569;
+  --cf-text-muted: #64748b;
+  --cf-accent: #84cc16;
+  --cf-accent-strong: #65a30d;
+  --cf-accent-dim: rgba(132, 204, 22, 0.2);
+  --cf-nav-active-bg: #0f172a;
+  --cf-nav-active-text: #ffffff;
+  --cf-radius-sm: 10px;
+  --cf-radius-md: 14px;
+  --cf-radius-pill: 9999px;
+  --cf-shadow-card: 0 1px 2px rgba(15, 23, 42, 0.04), 0 8px 28px rgba(15, 23, 42, 0.06);
+}

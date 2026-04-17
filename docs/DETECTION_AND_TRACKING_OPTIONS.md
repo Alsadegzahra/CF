@@ -91,14 +91,14 @@ Lower conf = more detections (fewer “no box” frames), with more risk of fals
 
 ## 3c. Pose refinement (optional ground point + skeleton on video)
 
-Use **`--pose`** to refine the player ground point with a pose model (Ultralytics YOLO-pose, e.g. yolov8n-pose.pt). Pose runs **per frame right after detection** (in the same pass as tracking): for each frame we get detections from the tracker, run pose on each person crop, then attach ground point (ankles/knees) and keypoints to that frame’s tracks. So there is no second video pass; pose is “after detection, before we store tracks.” The tracker’s own association (ByteTrack/BoT-SORT) does not use pose—using pose inside association would require custom tracker code; for now pose improves ground point, overlay skeleton, and is available for future pose-based checks.
+Use **`--pose`** to refine the player ground point with a pose model (Ultralytics YOLO-pose; default **`yolo26x-pose.pt`**, with fallbacks to `yolov8x-pose.pt` / `yolov8n-pose.pt` if your Ultralytics build cannot load YOLO26). Override with env **`COURTFLOW_POSE_MODEL`**. Pose runs **per frame right after detection** (in the same pass as tracking): for each frame we get detections from the tracker, run pose on each person crop, then attach ground point (ankles/knees) and keypoints to that frame’s tracks. So there is no second video pass; pose is “after detection, before we store tracks.” The tracker’s own association (ByteTrack/BoT-SORT) does not use pose—using pose inside association would require custom tracker code; for now pose improves ground point, overlay skeleton, and is available for future pose-based checks.
 
 **Pose on the overlay video:** When you use `--pose`, the track overlay video (`renders/track_overlay_preview.mp4`) and sample PNGs also draw the **pose skeleton** (COCO 17 keypoints) on each player in cyan.
 
 ```bash
 python3 -m src.app.cli run-match --match_id <id> --pose
 ```
-The pose model is downloaded on first use (yolov8n-pose.pt). Tracking and canonical IDs are unchanged; the ground point used for court mapping is refined, and the overlay shows the skeleton when pose data is available.
+The pose weights are downloaded on first use (~120MB for `yolo26x-pose.pt`). Tracking and canonical IDs are unchanged; the ground point used for court mapping is refined, and the overlay shows the skeleton when pose data is available.
 
 ---
 

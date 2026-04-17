@@ -64,6 +64,10 @@ def run_match(
     track_detection_only: bool = False,
     track_skip_first_seconds: float = 0.0,
     track_use_pose: bool = False,
+    track_ball_model: Optional[str] = None,
+    track_ball_conf: float = 0.2,
+    track_ball_class_id: Optional[int] = None,
+    allow_auto_calibration: bool = False,
 ) -> Path:
     """
     Run full pipeline for one match: load match from DB, ensure dirs, run stages 01–06,
@@ -101,7 +105,12 @@ def run_match(
         stages.update_meta_status(out_dir, "running")
 
         print("\n[01] Load calibration")
-        stages.stage_01_load_calibration(out_dir, match["court_id"], video_path)
+        stages.stage_01_load_calibration(
+            out_dir,
+            match["court_id"],
+            video_path,
+            allow_auto_calibration=allow_auto_calibration,
+        )
         print("\n[02] Player detection + tracking")
         stages.stage_02_track(
             out_dir,
@@ -116,6 +125,9 @@ def run_match(
             detection_only=track_detection_only,
             skip_first_seconds=track_skip_first_seconds,
             use_pose=track_use_pose,
+            ball_model=track_ball_model,
+            ball_conf=track_ball_conf,
+            ball_class_id=track_ball_class_id,
         )
         print("\n[03] Coordinate mapping")
         stages.stage_03_map(out_dir, match["court_id"])

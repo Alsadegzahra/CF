@@ -33,5 +33,6 @@ models/*.pth
 *.swp
 
 # Frontend (Vite)
+*.tsbuildinfo
 dashboard/web/node_modules/
 # dashboard/web/dist/ is committed so `uvicorn` can serve /app/ without a local Node build on every machine.

@@ -133,7 +133,8 @@
           </div>
         </div>
         <div class="header-actions">
-          <a href="#" id="btn-download-report" class="btn">Download Report</a>
+          <a href="#" id="btn-download-report" class="btn">Download Report (JSON)</a>
+          <a href="#" id="btn-download-pdf" class="btn" style="margin-left:0.5rem">Download PDF</a>
           <button type="button" id="btn-share" class="btn btn-primary">Share Highlights</button>
         </div>
       </header>
@@ -316,6 +317,9 @@
             a.click();
             URL.revokeObjectURL(a.href);
           };
+          var pdfA = document.getElementById('btn-download-pdf');
+          pdfA.href = API_BASE + '/matches/' + encodeURIComponent(matchId) + '/report.pdf';
+          pdfA.setAttribute('download', (report.match_id || matchId) + '-report.pdf');
 
           // Share: copy URL
           document.getElementById('btn-share').onclick = function () {

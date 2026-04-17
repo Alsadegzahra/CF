@@ -43,4 +43,6 @@ def save_homography(path: Path, calib: CalibrationHomography) -> None:
         payload["court_width_m"] = calib.court_width_m
     if calib.court_height_m is not None:
         payload["court_height_m"] = calib.court_height_m
+    if calib.num_points is not None:
+        payload["num_points"] = calib.num_points
     write_json(path, payload)

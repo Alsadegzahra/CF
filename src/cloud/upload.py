@@ -59,6 +59,12 @@ def upload_match_artifacts(
             upload_artifact(key, rp, bucket=bucket)
             result["keys"].append(key)
             result["report_key"] = key
+        pdf = base / "reports" / "report.pdf"
+        if pdf.exists():
+            key_pdf = f"{prefix}/report.pdf"
+            upload_artifact(key_pdf, pdf, bucket=bucket)
+            result["keys"].append(key_pdf)
+            result["report_pdf_key"] = key_pdf
 
     if upload_heatmap:
         heatmap_path = base / "reports" / "heatmap.png"

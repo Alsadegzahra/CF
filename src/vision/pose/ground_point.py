@@ -1,13 +1,15 @@
 """
 Use a pose model to get a stable ground point (ankles/knees) per person instead of bbox bottom.
 Improves court mapping and reduces jitter when players crouch or extend.
-Uses Ultralytics YOLO pose (e.g. yolov8n-pose.pt); COCO 17 keypoints.
+Uses Ultralytics YOLO pose (default yolo26x-pose.pt; COCO 17 keypoints).
+Override with env COURTFLOW_POSE_MODEL or load_pose_model(path).
 """
 from __future__ import annotations
 
+import os
 from collections import defaultdict
 from pathlib import Path
-from typing import List, Optional, Tuple, Any
+from typing import Any, List, Optional, Tuple
 
 import cv2
 import numpy as np
@@ -29,21 +31,34 @@ SKELETON_EDGES: List[Tuple[int, int]] = [
     (1, 2), (0, 1), (0, 2), (1, 3), (2, 4), (3, 5), (4, 6),  # face + neck
 ]
 
+# Default: YOLO26 extra-large pose (best quality; slower). Fallbacks if Ultralytics is older.
+_DEFAULT_POSE_CHAIN = ("yolo26x-pose.pt", "yolov8x-pose.pt", "yolov8n-pose.pt")
+
 
 def load_pose_model(model_name_or_path: Optional[str] = None):
     """
-    Load Ultralytics YOLO pose model. Default: yolov8n-pose.pt (lightweight).
-    Returns the model or None if pose deps are not available.
+    Load Ultralytics YOLO pose model.
+    - Explicit path/name: only that checkpoint is tried.
+    - Else env COURTFLOW_POSE_MODEL if set: only that name/path.
+    - Else: try yolo26x-pose.pt, then yolov8x-pose.pt, then yolov8n-pose.pt.
+    Returns None if ultralytics is missing or no checkpoint loads.
     """
     try:
         from ultralytics import YOLO
     except ImportError:
         return None
-    name = model_name_or_path or "yolov8n-pose.pt"
-    try:
-        return YOLO(name)
-    except Exception:
-        return None
+    if model_name_or_path:
+        names: Tuple[str, ...] = (model_name_or_path,)
+    elif os.getenv("COURTFLOW_POSE_MODEL"):
+        names = (os.environ["COURTFLOW_POSE_MODEL"],)
+    else:
+        names = _DEFAULT_POSE_CHAIN
+    for name in names:
+        try:
+            return YOLO(name)
+        except Exception:
+            continue
+    return None
 
 
 def get_ground_point_from_pose(

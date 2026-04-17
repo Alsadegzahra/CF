@@ -43,45 +43,44 @@ def build_phase1_report(
         from src.analytics.movement import compute_movement_metrics, intensity_timeline
         from src.analytics.heatmap import build_heatmap
         from src.analytics.padel import PadelAnalytics
+        from src.analytics.tier1 import build_tier1
+        from src.analytics.tier2 import build_tier2
+        from src.analytics.tier3 import build_tier3
 
         fps_meta = float(video_meta.get("fps", 30) or 30)
+        report_dict["analytics_tiers"] = {
+            "tier_1": build_tier1(tracks, video_meta, fps=fps_meta),
+        }
         metrics = compute_movement_metrics(tracks, fps=fps_meta)
         report_dict["summary"] = {**report_dict["summary"], **metrics["summary"]}
         report_dict["players"] = metrics["players"]
         report_dict["status"] = "computed"
 
-        # Add rank and share of distance for dashboard
-        total_dist = report_dict["summary"].get("total_distance") or 0.0
-        players_list = [
-            (pid, report_dict["players"][pid].get("distance") or 0.0)
-            for pid in report_dict["players"]
-        ]
-        players_list.sort(key=lambda x: -x[1])  # highest distance first
-        for rank, (pid, dist) in enumerate(players_list, start=1):
-            report_dict["players"][pid]["rank_by_distance"] = rank
-            report_dict["players"][pid]["share_of_distance_pct"] = (
-                round(100.0 * dist / total_dist, 1) if total_dist > 0 else 0.0
-            )
-        # One-line insight for dashboard hero
-        n = report_dict["summary"].get("num_players") or 0
-        d_s = report_dict["summary"].get("total_duration_s") or 0
-        report_dict["summary"]["insight"] = (
-            f"{n} players · {total_dist:.0f} m total · {d_s:.0f} s active"
-            + (
-                f" · Most active: P{players_list[0][0]} ({players_list[0][1]:.0f} m)"
-                if players_list else ""
-            )
-        )
+        # Rank / share / physical distance: align with Tier 1 (meters on court)
+        t1 = report_dict["analytics_tiers"]["tier_1"]
+        t1_players = t1.get("players") or {}
+        for pid in report_dict["players"]:
+            row = t1_players.get(str(pid))
+            if row:
+                report_dict["players"][pid]["rank_by_distance"] = row["rank_by_distance"]
+                report_dict["players"][pid]["share_of_distance_pct"] = row["share_of_distance_pct"]
+                report_dict["players"][pid]["distance_m"] = row["distance_m"]
+                report_dict["players"][pid]["active_duration_s"] = row["active_duration_s"]
+        report_dict["summary"]["insight"] = t1.get("insight", "Analytics computed.")
+        sess = t1.get("session") or {}
+        report_dict["summary"]["tier_1_total_distance_m"] = sess.get("total_distance_m", 0.0)
+        report_dict["summary"]["tier_1_tracking_span_s"] = sess.get("tracking_span_s", 0.0)
 
         # Combined heatmap + per-player heatmaps
         heatmap_path = reports_dir / "heatmap.png"
-        build_heatmap(tracks, heatmap_path)
+        _hm_kw = {"court_bounds": (0.0, 0.0, 1.0, 1.0), "grid_shape": (50, 100)}
+        build_heatmap(tracks, heatmap_path, **_hm_kw)
         analytics_heatmaps: dict = {"heatmap_path": str(heatmap_path)}
         for pid in report_dict["players"]:
             player_tracks = [t for t in tracks if str(t.get("player_id")) == str(pid)]
             if player_tracks:
                 p_path = reports_dir / f"heatmap_player_{pid}.png"
-                build_heatmap(player_tracks, p_path)
+                build_heatmap(player_tracks, p_path, **_hm_kw)
                 analytics_heatmaps[f"heatmap_player_{pid}"] = str(p_path)
         from src.analytics.spatial import compute_zone_coverage, compute_net_baseline_pct, compute_team_spacing
         zone_coverage = compute_zone_coverage(tracks)
@@ -92,6 +91,20 @@ def build_phase1_report(
             report_dict["players"][pid]["baseline_pct"] = net_baseline.get(pid, {}).get("baseline_pct", 0.0)
         analytics_heatmaps["team_spacing_m"] = compute_team_spacing(tracks)
         report_dict["analytics"] = analytics_heatmaps
+
+        heatmap_paths_tier2 = {
+            "combined": "reports/heatmap.png",
+            "per_player": {
+                str(pid): f"reports/heatmap_player_{pid}.png"
+                for pid in sorted(report_dict["players"].keys(), key=lambda x: int(x) if str(x).isdigit() else 0)
+            },
+        }
+        report_dict["analytics_tiers"]["tier_2"] = build_tier2(
+            tracks,
+            video_meta,
+            fps=fps_meta,
+            heatmap_paths=heatmap_paths_tier2,
+        )
 
         # Motion-based highlights: top intensity windows
         duration_s = float(video_meta.get("duration_seconds", 0))
@@ -122,7 +135,23 @@ def build_phase1_report(
             "wall_usage": padel["wall_usage"],
             "player_stats_sample": padel["player_stats_data"][:5] if padel["player_stats_data"] else [],
         }
+
+        report_dict["analytics_tiers"]["tier_3"] = build_tier3(
+            report_dict["players"],
+            team_spacing=analytics_heatmaps.get("team_spacing_m") or {},
+            highlights=report_dict.get("highlights") or [],
+        )
     else:
+        from src.analytics.tier1 import build_tier1
+        from src.analytics.tier2 import build_tier2
+        from src.analytics.tier3 import build_tier3
+
+        fps_empty = float(video_meta.get("fps", 30) or 30)
+        report_dict["analytics_tiers"] = {
+            "tier_1": build_tier1([], video_meta, fps=fps_empty),
+            "tier_2": build_tier2([], video_meta, fps=fps_empty, heatmap_paths={}),
+            "tier_3": build_tier3({}, team_spacing={}, highlights=[]),
+        }
         report_dict["summary"]["total_track_points"] = 0
         report_dict["summary"]["num_players"] = 0
         report_dict["summary"]["total_distance"] = 0.0
@@ -137,4 +166,17 @@ def build_phase1_report(
         }
 
     write_json_atomic(report_path, report_dict)
+
+    try:
+        from src.analytics.report_pdf import write_report_pdf_from_json
+
+        pdf_path = write_report_pdf_from_json(report_path)
+        try:
+            rel = pdf_path.relative_to(out_dir)
+        except ValueError:
+            rel = pdf_path.name
+        print(f"   ✓ Report PDF: {rel}")
+    except Exception as e:
+        print(f"   (skip) PDF export: {e}")
+
     return report_path

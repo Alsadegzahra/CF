@@ -80,10 +80,12 @@ def cmd_calibrate_court(args: argparse.Namespace) -> None:
         if not path.exists():
             raise FileNotFoundError(f"Image/video not found: {path}")
         from src.court.calibration.click_calibrate import calibrate_from_clicks
+        from src.court.calibration.court_keypoints import get_court_labels
+
         court_w = getattr(args, "court_width_m", 1.0)
         court_h = getattr(args, "court_height_m", 1.0)
         num_pts = getattr(args, "points", 4)
-        calib, calib_frame, points_px = calibrate_from_clicks(
+        calib, calib_frame, points_px, rms_px = calibrate_from_clicks(
             path, court_width_m=court_w, court_height_m=court_h, num_points=num_pts
         )
         # ROI = first 4 points (court outline) for both 4- and 12-point mode
@@ -92,14 +94,49 @@ def cmd_calibrate_court(args: argparse.Namespace) -> None:
             calib_dir, calib,
             calib_frame=calib_frame,
             roi_polygon_px=[(float(x), float(y)) for x, y in roi_pts],
+            calibration_points_px=[(float(x), float(y)) for x, y in points_px],
+            calibration_point_labels=get_court_labels(num_pts),
+            reprojection_rms_px=rms_px,
         )
-        print(f"Saved manual ({num_pts}-point) calibration + calib_frame + ROI for court {court_id}.")
+        print(f"Saved manual ({num_pts}-point) calibration + calib_frame + ROI + calibration_points.json for court {court_id}.")
         return
 
     if use_identity:
         print("Use --image <path> with --identity to create calibration from image/video size.")
         return
     print("Use --image <path> to click 4 court corners, --identity --image <path> for identity, or --homography_file <path> to copy.")
+
+
+def cmd_calibrate_net_floor(args: argparse.Namespace) -> None:
+    """Click 4 corners around the net on the floor; saved quad is used for red tint in analytics overlay."""
+    from pathlib import Path
+
+    from src.court.calibration.click_net_quad import calibrate_net_floor_quad_from_clicks
+    from src.court.calibration.net_floor_quad import NET_FLOOR_QUAD_FILENAME, save_net_floor_quad_json
+    from src.pipeline.paths import court_calibration_dir, match_dir, match_raw_dir
+
+    match_id = getattr(args, "match_id", None)
+    court_id = getattr(args, "court_id", None)
+    image = getattr(args, "image", None)
+
+    if bool(match_id) == bool(court_id):
+        raise SystemExit("Specify exactly one of --match_id or --court_id.")
+
+    if match_id:
+        mp4 = match_raw_dir(match_id) / "match.mp4"
+        if not image:
+            image = str(mp4) if mp4.exists() else None
+        if not image:
+            raise SystemExit(f"No --image and no video at {mp4}")
+        dest = match_dir(match_id) / "calibration" / NET_FLOOR_QUAD_FILENAME
+    else:
+        if not image:
+            raise SystemExit("With --court_id, pass --image <path> (image or video first frame).")
+        dest = court_calibration_dir(court_id) / NET_FLOOR_QUAD_FILENAME
+
+    _, points_px, w, h = calibrate_net_floor_quad_from_clicks(Path(image))
+    save_net_floor_quad_json(dest, points_px, image_width=w, image_height=h)
+    print(f"Saved net floor quad to {dest} (use same resolution as match video, or overlay scales from image_width/height).")
 
 
 def cmd_ingest_match(args: argparse.Namespace) -> None:
@@ -146,13 +183,15 @@ def cmd_ingest_match(args: argparse.Namespace) -> None:
         from src.pipeline.paths import court_calibration_dir
         from src.court.calibration.click_calibrate import calibrate_from_clicks
         from src.court.calibration.artifacts import save_calibration_artifacts
+        from src.court.calibration.court_keypoints import get_court_labels
+
         court_id = args.court_id
         calib_dir = court_calibration_dir(court_id)
         court_w = getattr(args, "court_width_m", 10.0)
         court_h = getattr(args, "court_height_m", 20.0)
         num_pts = getattr(args, "calibrate_points", 12)
         try:
-            calib, calib_frame, points_px = calibrate_from_clicks(
+            calib, calib_frame, points_px, rms_px = calibrate_from_clicks(
                 match_mp4, court_width_m=court_w, court_height_m=court_h, num_points=num_pts
             )
             roi_pts = points_px[:4]
@@ -160,8 +199,11 @@ def cmd_ingest_match(args: argparse.Namespace) -> None:
                 calib_dir, calib,
                 calib_frame=calib_frame,
                 roi_polygon_px=[(float(x), float(y)) for x, y in roi_pts],
+                calibration_points_px=[(float(x), float(y)) for x, y in points_px],
+                calibration_point_labels=get_court_labels(num_pts),
+                reprojection_rms_px=rms_px,
             )
-            print(f"Calibration saved for court {court_id} ({num_pts} points).")
+            print(f"Calibration saved for court {court_id} ({num_pts} points, reprojection RMS {rms_px:.2f} px).")
         except RuntimeError as e:
             if "cancelled" in str(e).lower():
                 print("Calibration cancelled.")
@@ -207,6 +249,10 @@ def cmd_run_match(args: argparse.Namespace) -> None:
         track_detection_only=getattr(args, "detection_only", False),
         track_skip_first_seconds=getattr(args, "skip_first_seconds", 0.0),
         track_use_pose=getattr(args, "use_pose", False),
+        track_ball_model=getattr(args, "ball_model", None),
+        track_ball_conf=getattr(args, "ball_conf", 0.2),
+        track_ball_class_id=getattr(args, "ball_class_id", None),
+        allow_auto_calibration=getattr(args, "auto_calibration", False),
     )
     print(f"Highlights: {path}")
 
@@ -254,6 +300,15 @@ def main() -> None:
     p_cal.add_argument("--points", type=int, default=4, choices=[4, 12], help="4 corners only, or 12 (corners + service + net) for more robust H")
     p_cal.set_defaults(func=cmd_calibrate_court)
 
+    p_net = sub.add_parser(
+        "calibrate-net-floor",
+        help="Click 4 corners of the net band on the floor; red tint in analytics overlay (see net_floor_quad.json)",
+    )
+    p_net.add_argument("--match_id", default=None, help="Save under match calibration/; uses raw/match.mp4 if --image omitted")
+    p_net.add_argument("--court_id", default=None, help="Save under court calibration/; requires --image")
+    p_net.add_argument("--image", default=None, help="Image or video (first frame) to click on")
+    p_net.set_defaults(func=cmd_calibrate_net_floor)
+
     # ingest-match
     p_ing = sub.add_parser("ingest-match", help="Ingest video and create FINALIZED match; then optionally define court points")
     p_ing.add_argument("--court_id", default="court_001")
@@ -277,10 +332,35 @@ def main() -> None:
     p_run.add_argument("--tracker", default=None, help="Tracker config (default: ByteTrack, no ReID). Use botsort_padel.yaml for BoT-SORT with ReID")
     p_run.add_argument("--same-kit", dest="same_kit", action="store_true", help="Players wear same kit (1&2, 3&4); use tracker without ReID to avoid ID swaps")
     p_run.add_argument("--detection-model", dest="detection_model", default=None, help="Path to custom YOLO .pt weights; overrides COURTFLOW_DETECTION_MODEL; if unset uses models/best.pt when present else pretrained")
+    p_run.add_argument(
+        "--ball-model",
+        dest="ball_model",
+        default=None,
+        help="Path to ball-only YOLO .pt; overrides COURTFLOW_BALL_MODEL. If unset, uses env or models/ball_best.pt when present",
+    )
+    p_run.add_argument("--ball-conf", dest="ball_conf", type=float, default=0.2, help="Ball detector confidence threshold (default 0.2)")
+    p_run.add_argument(
+        "--ball-class-id",
+        dest="ball_class_id",
+        type=int,
+        default=None,
+        help="YOLO class index for ball (default: unset = all classes, best box per frame). Set 0 for single-class ball weights",
+    )
     p_run.add_argument("--roi", dest="use_roi", action="store_true", help="Filter detections by court ROI (default: no ROI, keep top 4 by confidence so 4th player is not cut off)")
     p_run.add_argument("--detection-only", dest="detection_only", action="store_true", help="Run detection only (no tracker); same boxes as best.pt alone, assign 1-4 by position each frame")
-    p_run.add_argument("--pose", dest="use_pose", action="store_true", help="Refine ground point with pose model (ankles/knees) for less jitter; requires yolov8n-pose.pt")
-    p_run.set_defaults(func=cmd_run_match, use_roi=False)
+    p_run.add_argument(
+        "--pose",
+        dest="use_pose",
+        action="store_true",
+        help="Refine ground point with pose (ankles/knees); loads yolo26x-pose.pt by default (fallback yolov8x/yolov8n). Override: COURTFLOW_POSE_MODEL",
+    )
+    p_run.add_argument(
+        "--auto-calibration",
+        dest="auto_calibration",
+        action="store_true",
+        help="If court has no/failed homography, try automatic line-detection (default: off; use manual calibrate-court)",
+    )
+    p_run.set_defaults(func=cmd_run_match, use_roi=False, auto_calibration=False)
 
     # daily-check
     p_daily = sub.add_parser("daily-check", help="Process all FINALIZED matches")

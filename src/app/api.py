@@ -9,7 +9,7 @@ from typing import List, Optional
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
+from fastapi.responses import FileResponse, RedirectResponse
 from pydantic import BaseModel
 
 from src.config.settings import PROJECT_ROOT
@@ -61,38 +61,50 @@ def _react_dashboard_built() -> bool:
     return d.is_dir() and (d / "index.html").is_file()
 
 
-def _html_react_build_missing() -> str:
-    """Shown at / when dashboard/web/dist is missing (e.g. fresh clone before build)."""
-    return """<!DOCTYPE html>
-<html lang="en"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width, initial-scale=1"/>
-<title>CourtFlow — build the dashboard</title>
-<style>
-body{font-family:system-ui,sans-serif;max-width:36rem;margin:3rem auto;padding:0 1rem;line-height:1.5;color:#1e293b}
-code{background:#f1f5f9;padding:0.15rem 0.35rem;border-radius:4px;font-size:0.9rem}
-pre{background:#0f172a;color:#e2e8f0;padding:1rem;border-radius:8px;overflow:auto;font-size:0.85rem}
-a{color:#2563eb}</style></head><body>
-<h1>CourtFlow React UI is not built here</h1>
-<p>The screen with <strong>language options</strong>, <strong>Try demo</strong>, and the <strong>three tabs</strong> lives at <a href="/app/"><code>/app/</code></a>.
-That needs a production build of <code>dashboard/web</code>.</p>
-<p>From the repo root run:</p>
-<pre>npm install
-npm run build
-python3 -m uvicorn src.app.api:app --reload</pre>
-<p>Then open <a href="/app/">http://127.0.0.1:8000/app/</a> (or refresh <a href="/">/</a> — it redirects when <code>dist/</code> exists).</p>
-<p><strong>Development</strong> (hot reload): in another terminal run <code>npm run dev</code> and use <a href="http://127.0.0.1:5173/">http://127.0.0.1:5173/</a> with the API still on port 8000.</p>
-<p><a href="/docs">API docs</a></p>
-</body></html>"""
-
-
 @app.get("/", tags=["meta"])
 def root():
     """
-    Redirect to the React app at /app/ when `dashboard/web/dist` exists (languages, tabs, Try demo).
-    If dist is missing, show build instructions — not the legacy static landing card.
+    Serve the React SPA at site root (languages, tabs, Try demo). Requires `npm run build`.
     """
-    if _react_dashboard_built():
-        return RedirectResponse(url="/app/", status_code=302)
-    return HTMLResponse(content=_html_react_build_missing(), status_code=200)
+    if not _react_dashboard_built():
+        raise HTTPException(
+            status_code=503,
+            detail="Dashboard not built. From repo root run: npm install && npm run build",
+        )
+    return FileResponse(
+        _react_dashboard_dist() / "index.html",
+        media_type="text/html",
+    )
+
+
+@app.get("/courtflow-logo.png", tags=["meta"])
+def react_logo():
+    if not _react_dashboard_built():
+        raise HTTPException(status_code=404, detail="Not found")
+    p = _react_dashboard_dist() / "courtflow-logo.png"
+    if not p.is_file():
+        raise HTTPException(status_code=404, detail="Not found")
+    return FileResponse(p, media_type="image/png")
+
+
+@app.get("/app", tags=["meta"])
+def legacy_app_no_slash():
+    """Old URL; SPA now lives at /."""
+    return RedirectResponse(url="/", status_code=307)
+
+
+@app.get("/app/", tags=["meta"])
+def legacy_app_slash(request: Request):
+    q = request.url.query
+    return RedirectResponse(url=f"/?{q}" if q else "/", status_code=307)
+
+
+@app.get("/app/{subpath:path}", tags=["meta"])
+def legacy_app_deep(subpath: str):
+    """Bookmarks to /app/assets/... still work after SPA moved to /."""
+    if subpath.startswith("assets/"):
+        return RedirectResponse(url=f"/{subpath}", status_code=307)
+    return RedirectResponse(url="/", status_code=307)
 
 
 @app.get("/health", tags=["meta"])
@@ -108,7 +120,7 @@ def view_dashboard(request: Request):
     """
     if _react_dashboard_built():
         q = request.url.query
-        target = f"/app/?{q}" if q else "/app/"
+        target = f"/?{q}" if q else "/"
         return RedirectResponse(url=target, status_code=302)
     path = PROJECT_ROOT / "dashboard" / "view.html"
     if not path.exists():
@@ -366,7 +378,7 @@ if _react_dashboard_built():
     from fastapi.staticfiles import StaticFiles
 
     app.mount(
-        "/app",
-        StaticFiles(directory=str(_web_dist), html=True),
-        name="courtflow_react_ui",
+        "/assets",
+        StaticFiles(directory=str(_web_dist / "assets")),
+        name="courtflow_react_assets",
     )

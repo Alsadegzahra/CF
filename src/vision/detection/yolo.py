@@ -141,17 +141,19 @@ def track_persons(
         if r.boxes is None:
             continue
         track_ids = r.boxes.id
+        batch = []
         for i in range(len(r.boxes)):
             xyxy = r.boxes.xyxy[i].cpu().numpy().tolist()
             conf_val = float(r.boxes.conf[i].cpu().numpy())
             cls_id = int(r.boxes.cls[i].cpu().numpy())
             tid = int(track_ids[i].cpu().numpy()) if track_ids is not None else -1
-            out.append({
+            batch.append({
                 "bbox_xyxy": [float(x) for x in xyxy],
                 "confidence": conf_val,
                 "class_id": cls_id,
                 "track_id": tid,
             })
+        out.extend(batch)
     return out
 
 

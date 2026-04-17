@@ -263,6 +263,7 @@ def estimate_homography_from_frame(
         image_height=h,
         court_width_m=court_width_m,
         court_height_m=court_height_m,
+        num_points=4,
     )
     preview = None
     if return_preview:

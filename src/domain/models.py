@@ -85,6 +85,8 @@ class CalibrationHomography:
     image_height: int
     court_width_m: Optional[float] = None
     court_height_m: Optional[float] = None
+    # How many points were clicked for this H (4 or 12); used for overlay/debug labels.
+    num_points: Optional[int] = None
 
 
 # ---- Highlights + report -----------------------------------------------------

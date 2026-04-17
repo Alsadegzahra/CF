@@ -1,0 +1,10 @@
+{
+  "name": "courtflow",
+  "private": true,
+  "description": "CourtFlow — Python pipeline + dashboard web app. Web UI lives in dashboard/web.",
+  "scripts": {
+    "dev": "npm --prefix dashboard/web run dev",
+    "build": "npm --prefix dashboard/web run build",
+    "preview": "npm --prefix dashboard/web run preview"
+  }
+}

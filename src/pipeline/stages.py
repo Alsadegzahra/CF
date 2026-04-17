@@ -51,10 +51,17 @@ def update_meta_status(match_dir: Path, status: str) -> None:
     write_json(_meta_path(match_dir), meta)
 
 
-def stage_01_load_calibration(match_dir: Path, court_id: str, video_path: Path) -> None:
+def stage_01_load_calibration(
+    match_dir: Path,
+    court_id: str,
+    video_path: Path,
+    *,
+    allow_auto_calibration: bool = False,
+) -> None:
     """
-    Per-match calibration flow: manual once per court, then light auto-check per match.
-    If check fails → try auto-fix; if that fails → proceed without court mapping (manual later).
+    Per-match calibration: load manual court homography, copy into match dir.
+    Optional light resolution check (quick_check). Auto line detection is **off** by default;
+    pass allow_auto_calibration=True to recover missing/bad calib via court_detect (Canny/Hough).
     """
     from src.domain.enums import CalibrationStatus
     from src.court.calibration.quick_check import run_quick_check
@@ -66,14 +73,19 @@ def stage_01_load_calibration(match_dir: Path, court_id: str, video_path: Path) 
     calib = load_calibration_artifacts(calib_dir)
 
     if not calib:
-        print("   No calibration for this court; trying auto-detect from video...")
-        new_calib = try_auto_fix(court_id, video_path)
-        if new_calib:
-            save_calibration_artifacts(calib_dir, new_calib)
-            calib = new_calib
-            print("   ✓ Auto-detect applied; calibration saved.")
+        if allow_auto_calibration:
+            print("   No calibration for this court; trying auto-detect from video...")
+            new_calib = try_auto_fix(court_id, video_path)
+            if new_calib:
+                save_calibration_artifacts(calib_dir, new_calib)
+                calib = new_calib
+                print("   ✓ Auto-detect applied; calibration saved.")
+            else:
+                print("   Auto-detect failed; run manual calibration once per court.")
+                return
         else:
-            print("   Auto-detect failed; run manual calibration once per court.")
+            print("   No calibration for this court. Run: python3 -m src.app.cli calibrate-court ...")
+            print("   (Or re-run pipeline with --auto-calibration to try line-detection recovery.)")
             return
 
     # Light per-match check
@@ -96,21 +108,34 @@ def stage_01_load_calibration(match_dir: Path, court_id: str, video_path: Path) 
             print(f"   ⚠ Calibration warn (e.g. resolution mismatch) for court {court_id}; using anyway.")
 
     if status == CalibrationStatus.FAIL:
-        print("   Calibration check failed; trying auto-fix...")
-        new_calib = try_auto_fix(court_id, video_path)
-        if new_calib:
-            save_calibration_artifacts(calib_dir, new_calib)
-            calib = new_calib
-            print("   ✓ Auto-fix applied; calibration updated.")
+        if allow_auto_calibration:
+            print("   Calibration check failed; trying auto-fix...")
+            new_calib = try_auto_fix(court_id, video_path)
+            if new_calib:
+                save_calibration_artifacts(calib_dir, new_calib)
+                calib = new_calib
+                print("   ✓ Auto-fix applied; calibration updated.")
+            else:
+                print("   Auto-fix did not recover calibration; run manual calibration. Proceeding without court mapping.")
+                return
         else:
-            print("   Auto-fix did not recover calibration; run manual calibration. Proceeding without court mapping.")
+            print("   Calibration check failed; re-run calibrate-court for this court (or use --auto-calibration).")
             return
 
     # Copy to match dir so stage 03/04 find it
     match_calib_dir = match_dir / "calibration"
     match_calib_dir.mkdir(parents=True, exist_ok=True)
+    from shutil import copy2
+
     from src.court.calibration.homography import save_homography
+
     save_homography(match_calib_dir / "homography.json", calib)
+    pts_src = calib_dir / "calibration_points.json"
+    if pts_src.exists():
+        copy2(pts_src, match_calib_dir / "calibration_points.json")
+    net_q = calib_dir / "net_floor_quad.json"
+    if net_q.exists():
+        copy2(net_q, match_calib_dir / "net_floor_quad.json")
 
 
 # Swap rate above this → likely same kit; re-run tracking without ReID
@@ -131,10 +156,14 @@ def stage_02_track(
     detection_only: bool = False,
     skip_first_seconds: float = 0.0,
     use_pose: bool = False,
+    ball_model: Optional[str] = None,
+    ball_conf: float = 0.2,
+    ball_class_id: Optional[int] = None,
 ) -> None:
-    """Player detection + tracking -> tracks/tracks.json. Delegates to vision.pipeline (intelligence layer)."""
-    from src.utils.io import write_json_atomic_any
-    from src.vision.pipeline import run_tracking, estimate_canonical_swap_rate
+    """Player detection + tracking -> tracks/tracks.json; optional ball YOLO -> tracks/ball.json."""
+    from src.utils.io import write_json_atomic, write_json_atomic_any
+    from src.vision.detection.ball_yolo import resolve_ball_model_path
+    from src.vision.pipeline import run_ball_detection, run_tracking, estimate_canonical_swap_rate
 
     tracks_dir = match_dir / "tracks"
     tracks_dir.mkdir(parents=True, exist_ok=True)
@@ -192,6 +221,32 @@ def stage_02_track(
         n_players = len(set(t["player_id"] for t in tracks))
         n_frames = len(set(t["frame"] for t in tracks))
         print(f"   ✓ Tracked {len(tracks)} points from {n_frames} frames ({n_players} players).")
+
+    ball_path = resolve_ball_model_path(ball_model)
+    if ball_path and video_path.exists():
+        try:
+            ball_json = run_ball_detection(
+                video_path,
+                match_dir,
+                ball_model=ball_path,
+                sample_every_n_frames=sample_every_n_frames,
+                conf=ball_conf,
+                iou=iou,
+                ball_class_id=ball_class_id,
+            )
+            write_json_atomic(tracks_dir / "ball.json", ball_json)
+            n_ball = len(ball_json.get("detections") or [])
+            print(f"   ✓ Ball model: {n_ball} frame hits -> tracks/ball.json")
+        except Exception as e:
+            print(f"   (skip) Ball detection failed: {e}")
+    else:
+        ball_stale = tracks_dir / "ball.json"
+        if ball_stale.exists():
+            try:
+                ball_stale.unlink()
+                print("   ✓ No ball weights configured — removed stale tracks/ball.json")
+            except OSError as e:
+                print(f"   (warn) Could not remove tracks/ball.json: {e}")
 
 
 def stage_03_map(match_dir: Path, court_id: str) -> None:
@@ -341,7 +396,7 @@ def _write_player_thumbnails(video_path: Path, tracks: List[dict], renders_dir: 
 
 
 def stage_05_renders(match_dir: Path, video_path: Path) -> None:
-    """Render detection/tracking overlays: sample PNGs + short overlay video."""
+    """Render detection/tracking overlays: sample PNGs + short overlay video + analytics HUD video."""
     import cv2
     from src.utils.io import read_json
     from src.video.overlay import draw_tracks_on_frame, group_tracks_by_frame
@@ -424,6 +479,29 @@ def stage_05_renders(match_dir: Path, video_path: Path) -> None:
     writer.release()
     cap.release()
     print(f"   ✓ Wrote overlay video: renders/track_overlay_preview.mp4 ({max_overlay_frames} frames, from frame {start_frame})")
+
+    # Full analytics-style video: HUD + mini court map; ball/rally/stroke false unless optional JSON exists
+    tracks_canonical: list = []
+    if tracks_path.exists():
+        tc = read_json(tracks_path)
+        if isinstance(tc, list):
+            tracks_canonical = tc
+    try:
+        from src.video.analytics_overlay import write_analytics_overlay_video
+
+        ao = write_analytics_overlay_video(
+            match_dir,
+            video_path,
+            tracks_raw=tracks_for_overlay,
+            tracks_canonical=tracks_canonical,
+            fps=float(fps),
+            start_frame=start_frame,
+            max_frames=max_overlay_frames,
+        )
+        if ao and ao.exists():
+            print(f"   ✓ Wrote analytics overlay: renders/{ao.name} (+ overlay_meta.json)")
+    except Exception as e:
+        print(f"   (skip) Analytics overlay failed: {e}")
 
 
 def stage_06_highlights(

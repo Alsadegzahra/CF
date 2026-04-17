@@ -1,32 +1,61 @@
 """
 Spatial analytics: zone coverage, net vs baseline %, team spacing.
 Court coordinates: x, y in [0, 1]; y=0.5 is net, y=0 and y=1 are baselines.
+
+Padel court 10 m × 20 m (official): service lines 3.05 m from each baseline; net at 10 m.
+
+**Six zones = two teams’ halves × three depths.** Each **side of the net** is one team’s court
+half (full width — **x is ignored**). Per half: **back** (defense, behind service line) → **mid**
+(transition) → **net** (attack strip on that side only). This matches “each team has 3 zones”
+(D/T/A style), not left/right of the center line.
+
+Depth (y, net at 0.5):
+- **Half A** (y < 0.5, toward baseline 0): back y≤sl, mid (sl, NET_Y_LOW), net [NET_Y_LOW, 0.5)
+- **Half B** (y > 0.5, toward baseline 1): net (0.5, NET_Y_HI], mid (NET_Y_HI, 1−sl), back y≥1−sl
+- **y = 0.5**: counted as net (half A strip edge)
+
+Indices: **0–2** = team A back/mid/net; **3–5** = team B back/mid/net.
 """
 from __future__ import annotations
 
 from typing import Any, Dict, List, Tuple
 
 from src.analytics.movement import _get_court_point
+from src.config.constants import COURT_HEIGHT_M
+from src.court.calibration.court_keypoints import SERVICE_LINE_FROM_BASELINE_M
+
+# Normalized y-distance from baseline to service line (3.05 m / 20 m).
+SERVICE_LINE_NORM = SERVICE_LINE_FROM_BASELINE_M / COURT_HEIGHT_M
+
+# Net band: ~3 m either side of net (y = 0.5) — common coaching "at the net" depth.
+NET_ATTACK_DEPTH_M = 3.0
+NET_Y_LOW = 0.5 - NET_ATTACK_DEPTH_M / COURT_HEIGHT_M
+NET_Y_HI = 0.5 + NET_ATTACK_DEPTH_M / COURT_HEIGHT_M
 
 
-# Net region: middle 20% of court length (y)
-NET_Y_LOW = 0.4
-NET_Y_HI = 0.6
-
-# 6 zones: 2 (x: left/right) × 3 (y: back, mid, net)
+# 6 zones: 2 (sides of net / team halves, full width) × 3 (back, mid, net). x ignored.
 def _zone_index(x: float, y: float) -> int:
-    """Zone 0..5: 0=left-back, 1=left-mid, 2=left-net, 3=right-back, 4=right-mid, 5=right-net."""
-    if x < 0.5:
-        col = 0
-    else:
-        col = 1
-    if y < 0.33:
-        row = 0
-    elif y < 0.66:
-        row = 1
-    else:
-        row = 2
-    return col * 3 + row
+    """Zone 0..5: 0–2 = half A back/mid/net (y<0.5); 3–5 = half B back/mid/net (y>0.5)."""
+    _ = x  # lateral position does not define tactical zone
+    sl = SERVICE_LINE_NORM
+    yf = float(y)
+    if yf < 0.5:
+        if yf <= sl:
+            row = 0
+        elif yf < NET_Y_LOW:
+            row = 1
+        else:
+            row = 2
+        return row  # 0..2
+    if yf > 0.5:
+        if yf >= 1.0 - sl:
+            row = 0
+        elif yf > NET_Y_HI:
+            row = 1
+        else:
+            row = 2
+        return 3 + row  # 3..5
+    return 2  # y == 0.5: net strip (half A)
 
 
 def compute_zone_coverage(tracks: List[dict]) -> Dict[str, Dict[int, float]]:

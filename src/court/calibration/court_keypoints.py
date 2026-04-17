@@ -1,7 +1,8 @@
 """
 Padel court keypoint model: world coordinates (meters) for 4 or 12 points.
 Used for homography estimation (more points = more robust with findHomography + RANSAC).
-Reference: standard padel 10m x 20m; service line 6.95 m from each baseline; net at 10 m.
+Reference: standard padel 10m x 20m; service line 6.95 m from net
+(equivalently 3.05 m from each baseline); net at 10 m.
 """
 from __future__ import annotations
 
@@ -11,8 +12,9 @@ import numpy as np
 
 from src.config.constants import COURT_HEIGHT_M, COURT_WIDTH_M
 
-# Service line distance from baseline (m) – ITF padel
-SERVICE_LINE_FROM_BASELINE_M = 6.95
+# Service line distance from baseline (m) – official padel:
+# baseline->net is 10m and net->service line is 6.95m, so baseline->service is 3.05m.
+SERVICE_LINE_FROM_BASELINE_M = 3.05
 NET_MID_Y = COURT_HEIGHT_M / 2.0  # 10 m
 SERVICE_LEFT_Y = SERVICE_LINE_FROM_BASELINE_M  # 6.95
 SERVICE_RIGHT_Y = COURT_HEIGHT_M - SERVICE_LINE_FROM_BASELINE_M  # 13.05
@@ -107,4 +109,31 @@ def get_court_labels(num_points: int) -> List[str]:
         return COURT_4_LABELS
     if num_points == 12:
         return COURT_12_LABELS
+    raise ValueError("num_points must be 4 or 12")
+
+
+# Short labels for analytics overlay video (must match get_court_dst order)
+COURT_4_OVERLAY_SHORT = ["1 TL", "2 TR", "3 BR", "4 BL"]
+COURT_12_OVERLAY_SHORT = [
+    "1 TL",
+    "2 TR",
+    "3 BR",
+    "4 BL",
+    "5 svc L",
+    "6 svc R",
+    "7 svc L",
+    "8 svc R",
+    "9 net L",
+    "10 net R",
+    "11 net mid",
+    "12 svc T",
+]
+
+
+def get_court_overlay_short_labels(num_points: int) -> List[str]:
+    """Compact names for projected calibration markers on video."""
+    if num_points == 4:
+        return list(COURT_4_OVERLAY_SHORT)
+    if num_points == 12:
+        return list(COURT_12_OVERLAY_SHORT)
     raise ValueError("num_points must be 4 or 12")

@@ -16,3 +16,14 @@ The model is **detection only** (person bounding boxes per frame). CourtFlow run
 Training: [docs/DETECTION_TRAINING.md](../docs/DETECTION_TRAINING.md).
 
 **Same results as testing best.pt alone?** Use default ingest (copy as-is) and run with defaults (no ROI, conf 0.25). See [docs/DETECTION_AND_TRACKING_OPTIONS.md](../docs/DETECTION_AND_TRACKING_OPTIONS.md).
+
+## Ball weights (optional, separate file)
+
+Player and ball use **different** checkpoints. If you **do not** have ball weights yet, you do not need to do anything: `run-match` skips ball inference, and any old `data/matches/<id>/tracks/ball.json` is **removed** so the analytics HUD does not show a false “ball” flag.
+
+When you have a ball-only Ultralytics `.pt` (single-class ball is usually **class 0**):
+
+1. Save it as **`models/ball_best.pt`** (gitignored like `best.pt`), or set **`COURTFLOW_BALL_MODEL`** / **`--ball-model /path/to/weights.pt`**.
+2. Run with **`--ball-class-id 0`** if the model has one class at index 0.
+
+Obtain weights by training on labeled ball crops from your footage, or from another project you trust and are allowed to use — CourtFlow does not ship ball weights.

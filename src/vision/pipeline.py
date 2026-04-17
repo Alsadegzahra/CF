@@ -5,8 +5,9 @@ Used by: pipeline/stages.py stage_02_track.
 """
 from __future__ import annotations
 
+import os
 from pathlib import Path
-from typing import List, Optional
+from typing import Any, Dict, List, Optional
 
 import cv2
 
@@ -210,7 +211,12 @@ def run_tracking(
     - detection_only: no tracker; assign 1-4 by position each frame (debug only).
     """
     try:
-        from src.vision.detection.yolo import _get_model, track_persons, track_persons_video, detect_persons
+        from src.vision.detection.yolo import (
+            _get_model,
+            track_persons,
+            track_persons_video,
+            detect_persons,
+        )
         from src.vision.roi_filter.filter import (
             load_roi_for_match,
             filter_detections_by_roi,
@@ -317,12 +323,13 @@ def run_tracking(
                 pose_model = load_pose_model()
             except Exception:
                 pose_model = None
+        need_frames_for_crop_pose = use_pose and pose_model is not None
         gen = track_persons_video(
             video_path, model=model, conf=conf, iou=iou, tracker=tracker_cfg,
-            yield_frames=use_pose and pose_model is not None,
+            yield_frames=need_frames_for_crop_pose,
         )
         for item in gen:
-            if use_pose and pose_model is not None and len(item) == 3:
+            if len(item) == 3:
                 frame_idx, dets, frame_bgr = item[0], item[1], item[2]
             else:
                 frame_idx, dets = item[0], item[1]
@@ -348,7 +355,6 @@ def run_tracking(
                 }
                 if d.get("confidence") is not None:
                     raw_rec["confidence"] = round(float(d["confidence"]), 3)
-                # Pose per frame after detection: run pose on this frame's crop and attach ground point + keypoints
                 if pose_model is not None and frame_bgr is not None:
                     try:
                         out_pose = get_pose_ground_point_and_keypoints(frame_bgr, d["bbox_xyxy"], pose_model)
@@ -392,3 +398,113 @@ def run_tracking(
     if cap is not None:
         cap.release()
     return tracks
+
+
+def run_ball_detection(
+    video_path: Path,
+    match_dir: Path,
+    *,
+    ball_model: Optional[str] = None,
+    sample_every_n_frames: int = 1,
+    conf: float = 0.2,
+    iou: float = 0.5,
+    ball_class_id: Optional[int] = None,
+) -> Dict[str, Any]:
+    """
+    Run a dedicated ball YOLO checkpoint on the match video (separate from player weights).
+
+    Returns a dict suitable for ``tracks/ball.json``:
+    ``schema_version``, ``model``, ``ball_class_id``, ``detections`` (list of per-hit records).
+
+    Each detection: ``frame``, ``timestamp``, ``bbox_xyxy``, ``confidence``, ``class_id``,
+    ``x_pixel``, ``y_pixel``, and optionally ``x_court``, ``y_court`` when homography exists.
+    """
+    from src.vision.detection.ball_yolo import (
+        best_ball_detection,
+        bbox_center,
+        load_ball_model,
+        resolve_ball_model_path,
+    )
+
+    resolved = resolve_ball_model_path(ball_model)
+    out: Dict[str, Any] = {
+        "schema_version": "1",
+        "model": None,
+        "ball_class_id": ball_class_id,
+        "detections": [],
+    }
+    if not resolved:
+        return out
+
+    cid = ball_class_id
+    if cid is None and os.getenv("COURTFLOW_BALL_CLASS_ID", "").strip() != "":
+        try:
+            cid = int(os.environ["COURTFLOW_BALL_CLASS_ID"])
+        except ValueError:
+            cid = None
+
+    try:
+        model = load_ball_model(resolved)
+    except Exception:
+        return out
+
+    out["model"] = resolved
+    out["ball_class_id"] = cid
+
+    calib = None
+    try:
+        from src.court.calibration.artifacts import load_calibration_artifacts
+
+        calib = load_calibration_artifacts(match_dir / "calibration")
+    except Exception:
+        calib = None
+
+    cap = cv2.VideoCapture(str(video_path))
+    if not cap.isOpened():
+        return out
+    fps = cap.get(cv2.CAP_PROP_FPS) or 30.0
+    total = int(cap.get(cv2.CAP_PROP_FRAME_COUNT) or 0)
+    frame_idx = 0
+    hits: List[dict] = []
+    progress_every = max(1, total // max(1, sample_every_n_frames) // 15) if total else 0
+    processed = 0
+
+    while True:
+        ret, frame = cap.read()
+        if not ret or frame is None:
+            break
+        if frame_idx % sample_every_n_frames != 0:
+            frame_idx += 1
+            continue
+        det = best_ball_detection(frame, model, conf=conf, iou=iou, ball_class_id=cid)
+        if det is not None:
+            xyxy, conf_val, cls_id = det
+            cx, cy = bbox_center(xyxy)
+            rec: dict = {
+                "frame": frame_idx,
+                "timestamp": round(frame_idx / fps, 4) if fps > 0 else 0.0,
+                "bbox_xyxy": xyxy,
+                "confidence": round(conf_val, 4),
+                "class_id": cls_id,
+                "x_pixel": round(cx, 2),
+                "y_pixel": round(cy, 2),
+            }
+            if calib is not None:
+                try:
+                    from src.vision.mapping.img_to_court import pixel_to_court
+
+                    xc, yc = pixel_to_court(cx, cy, calib)
+                    rec["x_court"] = round(float(xc), 4)
+                    rec["y_court"] = round(float(yc), 4)
+                except Exception:
+                    pass
+            hits.append(rec)
+        processed += 1
+        if progress_every and processed % progress_every == 0 and total > 0:
+            pct = min(100, round(100 * (frame_idx + 1) / total, 1))
+            print(f"   ... ball detection frame {frame_idx + 1}/{total} ({pct}%)")
+        frame_idx += 1
+
+    cap.release()
+    out["detections"] = hits
+    return out
