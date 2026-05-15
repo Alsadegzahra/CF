@@ -7,161 +7,186 @@ import {
   useState,
   type ReactNode,
 } from "react";
+import type { User as SupabaseUser } from "@supabase/supabase-js";
+import { supabase } from "../lib/supabase";
 
-/** Signed-in user (client-side demo — not production auth). */
 export type AuthUser = {
   id: string;
   email: string;
   displayName: string;
-};
-
-const USERS_KEY = "courtflow_accounts_v1";
-const SESSION_KEY = "courtflow_session_v1";
-const GUEST_KEY = "courtflow_guest_v1";
-
-type StoredAccount = {
-  id: string;
-  email: string;
-  /** Demo only — stored in plain text in localStorage. */
-  password: string;
-  displayName: string;
+  username: string | null;
+  avatarUrl: string | null;
 };
 
 type AuthContextValue = {
-  /** Hydration finished (read localStorage). */
   ready: boolean;
   user: AuthUser | null;
-  /** User chose "continue without account". */
   isGuest: boolean;
-  register: (email: string, password: string, displayName: string) => { ok: true } | { ok: false; error: "exists" | "invalid" };
-  login: (email: string, password: string) => { ok: true } | { ok: false; error: "bad_credentials" | "invalid" };
-  logout: () => void;
+  needsProfileSetup: boolean;
+  loginWithEmail: (email: string, password: string) => Promise<{ ok: true } | { ok: false; error: string }>;
+  registerWithEmail: (email: string, password: string, displayName: string) => Promise<{ ok: true } | { ok: false; error: string }>;
+  loginWithGoogle: () => Promise<void>;
+  completeProfileSetup: (username: string, displayName: string) => Promise<{ ok: true } | { ok: false; error: string }>;
+  updateProfile: (username: string, displayName: string) => Promise<{ ok: true } | { ok: false; error: string }>;
+  logout: () => Promise<void>;
   continueAsGuest: () => void;
 };
 
 const AuthContext = createContext<AuthContextValue | null>(null);
 
-function readAccounts(): Record<string, StoredAccount> {
-  try {
-    const raw = localStorage.getItem(USERS_KEY);
-    if (!raw) return {};
-    const o = JSON.parse(raw) as unknown;
-    if (o && typeof o === "object" && !Array.isArray(o)) return o as Record<string, StoredAccount>;
-  } catch {
-    /* ignore */
-  }
-  return {};
-}
+async function fetchOrCreateProfile(authUser: SupabaseUser): Promise<{ user: AuthUser; needsSetup: boolean }> {
+  const { data: profile } = await supabase
+    .from("profiles")
+    .select("display_name, avatar_url, username")
+    .eq("id", authUser.id)
+    .single();
 
-function writeAccounts(acc: Record<string, StoredAccount>) {
-  try {
-    localStorage.setItem(USERS_KEY, JSON.stringify(acc));
-  } catch {
-    /* ignore */
+  if (profile) {
+    return {
+      user: {
+        id: authUser.id,
+        email: authUser.email ?? "",
+        displayName: profile.display_name,
+        username: profile.username ?? null,
+        avatarUrl: profile.avatar_url,
+      },
+      needsSetup: !profile.username,
+    };
   }
+
+  const displayName =
+    (authUser.user_metadata?.full_name as string | undefined)?.trim() ||
+    authUser.email?.split("@")[0] ||
+    "Player";
+  const avatarUrl = (authUser.user_metadata?.avatar_url as string | undefined) ?? null;
+
+  await supabase.from("profiles").insert({
+    id: authUser.id,
+    display_name: displayName,
+    avatar_url: avatarUrl,
+    username: null,
+  });
+
+  return {
+    user: { id: authUser.id, email: authUser.email ?? "", displayName, username: null, avatarUrl },
+    needsSetup: true,
+  };
 }
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [ready, setReady] = useState(false);
   const [user, setUser] = useState<AuthUser | null>(null);
-  const [isGuest, setIsGuest] = useState(false);
+  const [isGuest, setIsGuest] = useState(() => {
+    try { return localStorage.getItem("courtflow_guest_v1") === "1"; } catch { return false; }
+  });
+  const [needsProfileSetup, setNeedsProfileSetup] = useState(false);
 
   useEffect(() => {
-    try {
-      const guest = localStorage.getItem(GUEST_KEY) === "1";
-      const raw = localStorage.getItem(SESSION_KEY);
-      if (raw) {
-        const s = JSON.parse(raw) as { userId?: string; email?: string };
-        const email = typeof s.email === "string" ? s.email.toLowerCase().trim() : "";
-        const accounts = readAccounts();
-        const a = accounts[email];
-        if (a && a.id === s.userId) {
-          setUser({ id: a.id, email: a.email, displayName: a.displayName });
-          setIsGuest(false);
-          setReady(true);
-          return;
-        }
+    supabase.auth.getSession().then(async ({ data: { session } }) => {
+      if (session) {
+        const { user: u, needsSetup } = await fetchOrCreateProfile(session.user);
+        setUser(u);
+        setNeedsProfileSetup(needsSetup);
+        setIsGuest(false);
       }
-      if (guest) {
-        setIsGuest(true);
-        setUser(null);
-      }
-    } catch {
-      /* ignore */
-    }
-    setReady(true);
+      setReady(true);
+    });
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, session) => {
+      if (!session) { setUser(null); return; }
+      const { user: u, needsSetup } = await fetchOrCreateProfile(session.user);
+      setUser(u);
+      setNeedsProfileSetup(needsSetup);
+      setIsGuest(false);
+      try { localStorage.removeItem("courtflow_guest_v1"); } catch { /* ignore */ }
+    });
+
+    return () => subscription.unsubscribe();
   }, []);
 
-  const register = useCallback((email: string, password: string, displayName: string) => {
-    const e = email.trim().toLowerCase();
-    const name = displayName.trim();
-    if (!e || !password || !name) return { ok: false as const, error: "invalid" as const };
-    const accounts = readAccounts();
-    if (accounts[e]) return { ok: false as const, error: "exists" as const };
-    const id = crypto.randomUUID();
-    accounts[e] = { id, email: e, password, displayName: name };
-    writeAccounts(accounts);
-    setUser({ id, email: e, displayName: name });
-    setIsGuest(false);
-    try {
-      localStorage.setItem(SESSION_KEY, JSON.stringify({ userId: id, email: e }));
-      localStorage.removeItem(GUEST_KEY);
-    } catch {
-      /* ignore */
-    }
+  const loginWithEmail = useCallback(async (email: string, password: string) => {
+    const { error } = await supabase.auth.signInWithPassword({ email, password });
+    if (error) return { ok: false as const, error: error.message };
     return { ok: true as const };
   }, []);
 
-  const login = useCallback((email: string, password: string) => {
-    const e = email.trim().toLowerCase();
-    if (!e || !password) return { ok: false as const, error: "invalid" as const };
-    const accounts = readAccounts();
-    const a = accounts[e];
-    if (!a || a.password !== password) return { ok: false as const, error: "bad_credentials" as const };
-    setUser({ id: a.id, email: a.email, displayName: a.displayName });
-    setIsGuest(false);
-    try {
-      localStorage.setItem(SESSION_KEY, JSON.stringify({ userId: a.id, email: e }));
-      localStorage.removeItem(GUEST_KEY);
-    } catch {
-      /* ignore */
-    }
+  const registerWithEmail = useCallback(async (email: string, password: string, displayName: string) => {
+    const trimmed = displayName.trim();
+    if (!trimmed) return { ok: false as const, error: "Please enter a display name." };
+    const { error } = await supabase.auth.signUp({
+      email,
+      password,
+      options: { data: { full_name: trimmed } },
+    });
+    if (error) return { ok: false as const, error: error.message };
     return { ok: true as const };
   }, []);
 
-  const logout = useCallback(() => {
+  const loginWithGoogle = useCallback(async () => {
+    await supabase.auth.signInWithOAuth({
+      provider: "google",
+      options: { redirectTo: window.location.origin },
+    });
+  }, []);
+
+  const completeProfileSetup = useCallback(async (username: string, displayName: string) => {
+    if (!user) return { ok: false as const, error: "Not signed in." };
+    const uname = username.trim().toLowerCase();
+    const dname = displayName.trim();
+    if (!uname || !dname) return { ok: false as const, error: "Fill in all fields." };
+    if (!/^[a-z0-9_]{3,20}$/.test(uname)) return { ok: false as const, error: "Username: 3-20 chars, letters/numbers/underscore only." };
+
+    const { error } = await supabase
+      .from("profiles")
+      .update({ username: uname, display_name: dname, updated_at: new Date().toISOString() })
+      .eq("id", user.id);
+
+    if (error) {
+      if (error.code === "23505") return { ok: false as const, error: "Username already taken." };
+      return { ok: false as const, error: error.message };
+    }
+    setUser((prev) => prev ? { ...prev, username: uname, displayName: dname } : null);
+    setNeedsProfileSetup(false);
+    return { ok: true as const };
+  }, [user]);
+
+  const updateProfile = useCallback(async (username: string, displayName: string) => {
+    if (!user) return { ok: false as const, error: "Not signed in." };
+    const uname = username.trim().toLowerCase();
+    const dname = displayName.trim();
+    if (!uname || !dname) return { ok: false as const, error: "Fill in all fields." };
+    if (!/^[a-z0-9_]{3,20}$/.test(uname)) return { ok: false as const, error: "Username: 3-20 chars, letters/numbers/underscore only." };
+
+    const { error } = await supabase
+      .from("profiles")
+      .update({ username: uname, display_name: dname, updated_at: new Date().toISOString() })
+      .eq("id", user.id);
+
+    if (error) {
+      if (error.code === "23505") return { ok: false as const, error: "Username already taken." };
+      return { ok: false as const, error: error.message };
+    }
+    setUser((prev) => prev ? { ...prev, username: uname, displayName: dname } : null);
+    return { ok: true as const };
+  }, [user]);
+
+  const logout = useCallback(async () => {
+    await supabase.auth.signOut();
     setUser(null);
     setIsGuest(false);
-    try {
-      localStorage.removeItem(SESSION_KEY);
-      localStorage.removeItem(GUEST_KEY);
-    } catch {
-      /* ignore */
-    }
+    setNeedsProfileSetup(false);
+    try { localStorage.removeItem("courtflow_guest_v1"); } catch { /* ignore */ }
   }, []);
 
   const continueAsGuest = useCallback(() => {
     setUser(null);
     setIsGuest(true);
-    try {
-      localStorage.setItem(GUEST_KEY, "1");
-      localStorage.removeItem(SESSION_KEY);
-    } catch {
-      /* ignore */
-    }
+    try { localStorage.setItem("courtflow_guest_v1", "1"); } catch { /* ignore */ }
   }, []);
 
   const value = useMemo<AuthContextValue>(
-    () => ({
-      ready,
-      user,
-      isGuest,
-      register,
-      login,
-      logout,
-      continueAsGuest,
-    }),
-    [ready, user, isGuest, register, login, logout, continueAsGuest],
+    () => ({ ready, user, isGuest, needsProfileSetup, loginWithEmail, registerWithEmail, loginWithGoogle, completeProfileSetup, updateProfile, logout, continueAsGuest }),
+    [ready, user, isGuest, needsProfileSetup, loginWithEmail, registerWithEmail, loginWithGoogle, completeProfileSetup, updateProfile, logout, continueAsGuest],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

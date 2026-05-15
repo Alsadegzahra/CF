@@ -38,6 +38,10 @@ DEFAULT_AUDIO_BITRATE = "128k"
 # Logging
 LOG_LEVEL = os.getenv("COURTFLOW_LOG_LEVEL", "INFO")
 
+# Supabase (server-side)
+SUPABASE_URL = os.getenv("SUPABASE_URL", "")
+SUPABASE_SERVICE_ROLE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY", "")
+
 
 def ensure_dirs() -> None:
     """Create data/courts and data/matches if missing."""

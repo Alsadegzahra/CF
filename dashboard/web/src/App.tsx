@@ -13,6 +13,9 @@ import { MatchPicker } from "./components/MatchPicker";
 import { RecentMatches } from "./components/RecentMatches";
 import { FriendsModal } from "./components/social/FriendsModal";
 import { SavedMatchesModal } from "./components/social/SavedMatchesModal";
+import { FeedModal } from "./components/social/FeedModal";
+import { ProfileModal } from "./components/social/ProfileModal";
+import { UsernameSetupModal } from "./components/onboarding/UsernameSetupModal";
 import { AnalysisView } from "./components/tabs/AnalysisView";
 import { ReplayView } from "./components/tabs/ReplayView";
 import { SummaryView } from "./components/tabs/SummaryView";
@@ -23,25 +26,40 @@ type SearchParamsState = ReturnType<typeof useSearchParamsState>;
 
 export default function App() {
   const search = useSearchParamsState();
+  const { user, needsProfileSetup } = useAuth();
   const [friendsOpen, setFriendsOpen] = useState(false);
   const [savedMatchesOpen, setSavedMatchesOpen] = useState(false);
+  const [feedOpen, setFeedOpen] = useState(false);
+  const [profileOpen, setProfileOpen] = useState(false);
 
   return (
     <>
+      {needsProfileSetup ? <UsernameSetupModal /> : null}
       <AppMain
         search={search}
         onOpenFriends={() => setFriendsOpen(true)}
         onOpenSavedMatches={() => setSavedMatchesOpen(true)}
+        onOpenFeed={() => setFeedOpen(true)}
+        onOpenProfile={() => setProfileOpen(true)}
       />
       <FriendsModal open={friendsOpen} onClose={() => setFriendsOpen(false)} />
       <SavedMatchesModal
         open={savedMatchesOpen}
         onClose={() => setSavedMatchesOpen(false)}
-        onOpenMatch={(m, c) => {
-          search.setMatchParams(m, c);
-          setSavedMatchesOpen(false);
-        }}
+        onOpenMatch={(m, c) => { search.setMatchParams(m, c); setSavedMatchesOpen(false); }}
       />
+      <FeedModal
+        open={feedOpen}
+        onClose={() => setFeedOpen(false)}
+        onOpenMatch={(m, c) => { search.setMatchParams(m, c); setFeedOpen(false); }}
+      />
+      {user ? (
+        <ProfileModal
+          open={profileOpen}
+          onClose={() => setProfileOpen(false)}
+          onOpenMatch={(m, c) => { search.setMatchParams(m, c); setProfileOpen(false); }}
+        />
+      ) : null}
     </>
   );
 }
@@ -50,9 +68,11 @@ type AppMainProps = {
   search: SearchParamsState;
   onOpenFriends: () => void;
   onOpenSavedMatches: () => void;
+  onOpenFeed: () => void;
+  onOpenProfile: () => void;
 };
 
-function AppMain({ search, onOpenFriends, onOpenSavedMatches }: AppMainProps) {
+function AppMain({ search, onOpenFriends, onOpenSavedMatches, onOpenFeed, onOpenProfile }: AppMainProps) {
   const { user } = useAuth();
   const { t, languageGateDone } = usePreferences();
   const { params, setMatchParams, clearMatchParams, openDemoMatch } = search;
@@ -62,7 +82,7 @@ function AppMain({ search, onOpenFriends, onOpenSavedMatches }: AppMainProps) {
   const [tab, setTab] = useState<TabId>("summary");
   const state = useDashboardData(matchId || null, courtId || null);
 
-  const shellUser = user ? { onOpenFriends, onOpenSavedMatches } : {};
+  const shellUser = user ? { onOpenFriends, onOpenSavedMatches, onOpenFeed, onOpenProfile } : {};
 
   const accountSaveEnabled =
     Boolean(user) && state.status === "ok" && state.data.matchId === matchId.trim();
@@ -82,6 +102,8 @@ function AppMain({ search, onOpenFriends, onOpenSavedMatches }: AppMainProps) {
           <AppTopBar
             onOpenFriends={user ? onOpenFriends : undefined}
             onOpenSavedMatches={user ? onOpenSavedMatches : undefined}
+            onOpenFeed={user ? onOpenFeed : undefined}
+            onOpenProfile={user ? onOpenProfile : undefined}
           />
         </header>
         <div className="mx-auto max-w-[1120px] px-5 pt-6">

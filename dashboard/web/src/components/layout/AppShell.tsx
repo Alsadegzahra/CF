@@ -15,10 +15,10 @@ type AppShellProps = {
   onTab: (t: TabId) => void;
   /** Exit match (e.g. clear query). If omitted, back uses browser history. */
   onBack?: () => void;
-  /** Signed-in users: open friends list (roster assignments). */
   onOpenFriends?: () => void;
-  /** Signed-in users: open saved matches list. */
   onOpenSavedMatches?: () => void;
+  onOpenFeed?: () => void;
+  onOpenProfile?: () => void;
   /** Signed-in + match loaded: show "Add to my account" for this match. */
   accountSaveEnabled?: boolean;
   children: ReactNode;
@@ -39,6 +39,8 @@ export function AppShell({
   onBack,
   onOpenFriends,
   onOpenSavedMatches,
+  onOpenFeed,
+  onOpenProfile,
   accountSaveEnabled = false,
   children,
 }: AppShellProps) {
@@ -53,7 +55,7 @@ export function AppShell({
     <div className="min-h-screen bg-cf-canvas">
       <header className="sticky top-0 z-30 border-b border-cf-line/90 bg-white/95 shadow-sm backdrop-blur-md">
         <div className="flex items-center justify-end border-b border-cf-line/70 bg-white/90 px-4 py-2">
-          <AppTopBar onOpenFriends={onOpenFriends} onOpenSavedMatches={onOpenSavedMatches} />
+          <AppTopBar onOpenFriends={onOpenFriends} onOpenSavedMatches={onOpenSavedMatches} onOpenFeed={onOpenFeed} onOpenProfile={onOpenProfile} />
         </div>
         <div className="mx-auto flex max-w-lg items-center justify-between gap-2 px-4 py-3 sm:max-w-2xl">
           <button

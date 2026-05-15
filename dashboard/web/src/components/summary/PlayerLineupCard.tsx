@@ -1,3 +1,4 @@
+import { useEffect } from "react";
 import { useAuth } from "../../context/AuthContext";
 import { usePreferences } from "../../context/PreferencesContext";
 import { useSocial } from "../../context/SocialContext";
@@ -26,6 +27,10 @@ export function PlayerLineupCard({ players, matchId }: PlayerLineupCardProps) {
     teamDisplayNames,
     setTeamDisplayNames,
   } = usePreferences();
+  const { loadRosterForMatch } = useSocial();
+
+  useEffect(() => { loadRosterForMatch(matchId); }, [matchId, loadRosterForMatch]);
+
   const teamA = players.filter((p) => p.team === "A");
   const teamB = players.filter((p) => p.team === "B");
 

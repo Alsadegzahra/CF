@@ -6,10 +6,11 @@ import { AuthModal } from "./AuthModal";
 type AppTopBarProps = {
   onOpenFriends?: () => void;
   onOpenSavedMatches?: () => void;
+  onOpenFeed?: () => void;
+  onOpenProfile?: () => void;
 };
 
-/** Language + account — same placement on match-picker and in-app shells. */
-export function AppTopBar({ onOpenFriends, onOpenSavedMatches }: AppTopBarProps) {
+export function AppTopBar({ onOpenFriends, onOpenSavedMatches, onOpenFeed, onOpenProfile }: AppTopBarProps) {
   const [authOpen, setAuthOpen] = useState(false);
 
   return (
@@ -20,6 +21,8 @@ export function AppTopBar({ onOpenFriends, onOpenSavedMatches }: AppTopBarProps)
           onOpenAuth={() => setAuthOpen(true)}
           onOpenFriends={onOpenFriends}
           onOpenSavedMatches={onOpenSavedMatches}
+          onOpenFeed={onOpenFeed}
+          onOpenProfile={onOpenProfile}
         />
       </div>
       <AuthModal
@@ -27,6 +30,8 @@ export function AppTopBar({ onOpenFriends, onOpenSavedMatches }: AppTopBarProps)
         onClose={() => setAuthOpen(false)}
         onOpenFriends={onOpenFriends}
         onOpenSavedMatches={onOpenSavedMatches}
+        onOpenFeed={onOpenFeed}
+        onOpenProfile={onOpenProfile}
       />
     </>
   );

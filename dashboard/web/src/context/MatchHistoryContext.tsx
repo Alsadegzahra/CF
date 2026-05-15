@@ -7,69 +7,53 @@ import {
   useState,
   type ReactNode,
 } from "react";
+import { supabase } from "../lib/supabase";
 import { useAuth } from "./AuthContext";
 
 export type RecentMatchEntry = {
   matchId: string;
   courtId: string;
   openedAt: number;
+  title?: string;
 };
 
-const MAX_RECENT = 20;
-
-const storageKey = (userId: string) => `courtflow_recent_matches_v1_${userId}`;
-
-function readList(userId: string): RecentMatchEntry[] {
-  try {
-    const raw = localStorage.getItem(storageKey(userId));
-    if (!raw) return [];
-    const parsed = JSON.parse(raw) as unknown;
-    if (!Array.isArray(parsed)) return [];
-    return parsed
-      .filter(
-        (x): x is RecentMatchEntry =>
-          x &&
-          typeof x === "object" &&
-          typeof (x as RecentMatchEntry).matchId === "string" &&
-          typeof (x as RecentMatchEntry).courtId === "string" &&
-          typeof (x as RecentMatchEntry).openedAt === "number",
-      )
-      .slice(0, MAX_RECENT);
-  } catch {
-    return [];
-  }
-}
-
-function writeList(userId: string, list: RecentMatchEntry[]) {
-  try {
-    localStorage.setItem(storageKey(userId), JSON.stringify(list.slice(0, MAX_RECENT)));
-  } catch {
-    /* ignore */
-  }
-}
-
 type MatchHistoryContextValue = {
-  /** Matches the user explicitly saved (localStorage per account until backend exists). */
   savedMatches: RecentMatchEntry[];
   isMatchSaved: (matchId: string) => boolean;
-  addMatchToAccount: (matchId: string, courtId: string) => void;
+  addMatchToAccount: (matchId: string, courtId: string, title?: string) => void;
   removeMatchFromAccount: (matchId: string) => void;
+  updateMatchTitle: (matchId: string, title: string) => void;
 };
 
 const MatchHistoryContext = createContext<MatchHistoryContextValue | null>(null);
 
 export function MatchHistoryProvider({ children }: { children: ReactNode }) {
   const { user } = useAuth();
-  const userId = user?.id ?? null;
   const [savedMatches, setSavedMatches] = useState<RecentMatchEntry[]>([]);
 
   useEffect(() => {
-    if (!userId) {
+    if (!user) {
       setSavedMatches([]);
       return;
     }
-    setSavedMatches(readList(userId));
-  }, [userId]);
+    supabase
+      .from("user_matches")
+      .select("match_id, court_id, played_at, title")
+      .eq("user_id", user.id)
+      .order("played_at", { ascending: false })
+      .limit(20)
+      .then(({ data }) => {
+        if (!data) return;
+        setSavedMatches(
+          data.map((r) => ({
+            matchId: r.match_id,
+            courtId: r.court_id ?? "",
+            openedAt: new Date(r.played_at).getTime(),
+            title: r.title ?? undefined,
+          })),
+        );
+      });
+  }, [user?.id]);
 
   const isMatchSaved = useCallback(
     (matchId: string) => savedMatches.some((x) => x.matchId === matchId.trim()),
@@ -77,36 +61,49 @@ export function MatchHistoryProvider({ children }: { children: ReactNode }) {
   );
 
   const addMatchToAccount = useCallback(
-    (matchId: string, courtId: string) => {
-      if (!userId) return;
+    (matchId: string, courtId: string, title?: string) => {
+      if (!user) return;
       const mid = matchId.trim();
       if (!mid) return;
-      const cid = courtId.trim();
-      const list = readList(userId);
-      const without = list.filter((x) => x.matchId !== mid);
-      const next: RecentMatchEntry[] = [{ matchId: mid, courtId: cid, openedAt: Date.now() }, ...without].slice(
-        0,
-        MAX_RECENT,
-      );
-      writeList(userId, next);
-      setSavedMatches(next);
+      const entry: RecentMatchEntry = { matchId: mid, courtId: courtId.trim(), openedAt: Date.now(), title: title?.trim() || undefined };
+      setSavedMatches((prev) => [entry, ...prev.filter((x) => x.matchId !== mid)].slice(0, 20));
+      supabase
+        .from("user_matches")
+        .upsert(
+          { user_id: user.id, match_id: mid, court_id: courtId.trim() || null, title: title?.trim() || null, played_at: new Date().toISOString(), visibility: "friends" },
+          { onConflict: "user_id,match_id" },
+        )
+        .then(() => {});
     },
-    [userId],
+    [user],
+  );
+
+  const updateMatchTitle = useCallback(
+    (matchId: string, title: string) => {
+      if (!user) return;
+      setSavedMatches((prev) => prev.map((x) => x.matchId === matchId ? { ...x, title: title.trim() || undefined } : x));
+      supabase.from("user_matches").update({ title: title.trim() || null }).eq("user_id", user.id).eq("match_id", matchId).then(() => {});
+    },
+    [user],
   );
 
   const removeMatchFromAccount = useCallback(
     (matchId: string) => {
-      if (!userId) return;
-      const next = readList(userId).filter((x) => x.matchId !== matchId);
-      writeList(userId, next);
-      setSavedMatches(next);
+      if (!user) return;
+      setSavedMatches((prev) => prev.filter((x) => x.matchId !== matchId));
+      supabase
+        .from("user_matches")
+        .delete()
+        .eq("user_id", user.id)
+        .eq("match_id", matchId)
+        .then(() => {});
     },
-    [userId],
+    [user],
   );
 
   const value = useMemo<MatchHistoryContextValue>(
-    () => ({ savedMatches, isMatchSaved, addMatchToAccount, removeMatchFromAccount }),
-    [savedMatches, isMatchSaved, addMatchToAccount, removeMatchFromAccount],
+    () => ({ savedMatches, isMatchSaved, addMatchToAccount, removeMatchFromAccount, updateMatchTitle }),
+    [savedMatches, isMatchSaved, addMatchToAccount, removeMatchFromAccount, updateMatchTitle],
   );
 
   return <MatchHistoryContext.Provider value={value}>{children}</MatchHistoryContext.Provider>;

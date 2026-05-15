@@ -1,76 +1,137 @@
 # CourtFlow
 
-Turn raw match video into analytics and highlight videos. Pipeline: ingest → detect & track → map to court → report + heatmap + highlights. Data under `data/courts/` and `data/matches/` (gitignored).
+**Integrated Match Video Capture & Intelligence System**
+
+CourtFlow turns raw padel match video into structured post-match analytics. A fixed overhead camera records the match; the computer-vision pipeline detects and tracks all four players, maps their positions onto the physical court, and produces per-player heatmaps, physical load metrics, spatial zone coverage, and motion-based highlight clips. Players access results through a bilingual (English/Arabic) web dashboard — no app install required.
 
 ---
 
-## What’s in the repo
+## Tech Stack
 
-- **CLI:** `ingest-match`, `run-match`, `calibrate-court`, `upload-match` (R2)
-- **API (FastAPI):** matches, report, artifacts, cloud URLs; serves the React dashboard at `/` (`/view?…` redirects to the same UI)
-- **User dashboard:** React SPA in `dashboard/web` — `npm run build` then open `/?match_id=xxx` or `/view?match_id=xxx`
-- **Cloud:** Cloudflare R2 for highlights + report; presigned links
+| Layer | Technology |
+|---|---|
+| Language & Runtime | Python 3.9+ |
+| API | FastAPI + Uvicorn |
+| Vision | YOLOv8 + ByteTrack (Ultralytics) |
+| Video processing | OpenCV, FFmpeg |
+| Analytics | NumPy, pandas |
+| Cloud storage | Cloudflare R2 (S3-compatible) |
+| Auth & social | Supabase |
+| Frontend | React + Vite (TypeScript) |
+| Deployment | Render |
+| Database | SQLite (file-based, no server required) |
 
 ---
 
-## Quick start
+## Folder Structure
+
+```
+CourtFlow/
+├── src/                    # Python backend — pipeline, analytics, API
+│   ├── app/                # FastAPI app, CLI entry points, auth
+│   ├── pipeline/           # Orchestration: match_runner, pipeline stages
+│   ├── vision/             # Detection (YOLO), tracking, mapping, ROI filter
+│   ├── court/              # Court calibration, homography, keypoints
+│   ├── analytics/          # 3-tier analytics engine, heatmap, PDF report
+│   ├── highlights/         # Highlight selection and video clip export
+│   ├── video/              # Frame extraction, video ingestion, overlays
+│   ├── cloud/              # Cloudflare R2 upload, presigned URLs
+│   ├── storage/            # SQLite match/court registry, tracks DB
+│   ├── domain/             # Data models, enums, report contract
+│   ├── config/             # Settings, constants
+│   └── utils/              # Geometry, I/O, logging, time helpers
+├── dashboard/              # React/Vite frontend
+│   └── web/
+│       └── src/            # Components, contexts, hooks, i18n (EN/AR)
+├── models/                 # YOLO model weights (best.pt — gitignored)
+├── data/                   # Courts config, match outputs (gitignored)
+│   ├── courts/             # Per-court calibration artifacts
+│   └── matches/            # Per-match reports, heatmaps, highlights
+├── sample_videos/          # Short test clips for local pipeline runs
+├── scripts/                # Standalone utility scripts
+├── config/                 # Tracker configuration YAML files
+│   └── trackers/
+├── docs/                   # Architecture documentation
+├── requirements.txt
+├── Dockerfile
+└── .env.example
+```
+
+---
+
+## How to Run Locally
+
+### 1. Install dependencies
 
 ```bash
 pip install -r requirements.txt
-cp .env.example .env   # optional: add R2_* for cloud
-
-python3 -m src.app.cli ingest-match --court_id court_001 --input /path/to/video.mp4
-python3 -m src.app.cli run-match
-python3 -m uvicorn src.app.api:app --reload
-# After `npm run build` in dashboard/web: http://127.0.0.1:8000/?match_id=<match_id>
+cp .env.example .env        # fill in R2 credentials if you want cloud upload
 ```
 
-**React dashboard with a real file:**
+FFmpeg must be on your system PATH (`brew install ffmpeg` on macOS).
+
+### 2. Calibrate a court (first time only)
 
 ```bash
-python3 scripts/run_video_through_pipeline.py --input ~/Desktop/sample2.mp4 --court_id court_002
-# Terminal A: uvicorn …  Terminal B: npm run dev  → http://127.0.0.1:5173/?match_id=<id>
+python3 -m src.app.cli calibrate-court --court_id court_001 --image /path/to/court_frame.jpg
 ```
 
-**Ship the UI with the API:** from repo root, `npm run build` (or `cd dashboard/web && npm run build`). FastAPI serves `dashboard/web/dist` at `/` and `/assets/*`.
+### 3. Run the full pipeline on a video
 
-**Slow `run-match`:** stage 02 (detection / YOLO) is usually the bottleneck.
+```bash
+# Option A — one command (ingest + pipeline)
+python3 scripts/run_video_through_pipeline.py --input /path/to/match.mp4 --court_id court_001
 
-**Custom detection weights:** put `best.pt` in `models/` (see `models/README.md`). Override with `--detection-model` or `COURTFLOW_DETECTION_MODEL`.
+# Option B — step by step
+python3 -m src.app.cli ingest-match --court_id court_001 --input /path/to/match.mp4
+python3 -m src.app.cli run-match
+```
 
----
+### 4. Start the API and open the dashboard
 
-## Commands (summary)
+```bash
+uvicorn src.app.api:app --reload
+# Open: http://127.0.0.1:8000/app?match_id=<match_id>
+```
 
-| Step | Command |
-|------|--------|
-| Calibrate court | `python3 -m src.app.cli calibrate-court --court_id court_001` (see `--help` for image / video options) |
-| Ingest match | `python3 -m src.app.cli ingest-match --court_id court_001 --input <video>` |
-| Run pipeline | `python3 -m src.app.cli run-match` or `--match_id <id>` |
-| API | `uvicorn src.app.api:app --reload` → http://127.0.0.1:8000/docs ; `/` = dashboard when `dist/` exists |
-| Dashboard (dev) | `npm run dev` → http://127.0.0.1:5173/?match_id=… |
-| Upload to R2 | `python3 -m src.app.cli upload-match --match_id <id>` |
+### 5. (Optional) Upload results to cloud
 
----
-
-## Deploy (e.g. Render)
-
-1. **Upload at least one match to R2** from your machine (`.env` with R2 vars):  
-   `python3 -m src.app.cli upload-match --match_id <your_match_id>`
-2. **Web service:** repo root, Python 3, **Build:** `pip install -r requirements.txt`, **Start:** `uvicorn src.app.api:app --host 0.0.0.0 --port $PORT`
-3. **Environment variables:** `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `R2_BUCKET`, `R2_ACCOUNT_ID` (same as local `.env`). Do not set `PORT` on Render.
-4. **Open:** `https://<your-service>.onrender.com/view?match_id=<id>` or `/?match_id=<id>` (same React app). API docs: `/docs`.
-
-**If the site still looks like an old dark “Enter Match ID” page:** Render is serving an older build or your browser cached HTML. On Render use **Manual Deploy → Clear build cache & deploy**; in the browser use a **hard refresh** (Shift+Reload) or an incognito window.
-
-**Docker:** `docker build -t courtflow .` then run with `PORT` set; image uses `requirements.txt` and serves the API + committed `dashboard/web/dist`.
+```bash
+python3 -m src.app.cli upload-match --match_id <match_id>
+```
 
 ---
 
-## Repo layout
+## CLI Commands Reference
 
-- **Pipeline:** `src/pipeline/match_runner.py` → stages in `src/pipeline/stages.py`
-- **Domain / report shapes:** `src/domain/models.py`, `src/domain/report_contract.py`
-- **Tracker configs:** `config/trackers/*.yaml` (pass `--tracker` on `run-match`)
+| Command | Description |
+|---|---|
+| `calibrate-court` | One-time court setup — captures homography from a reference image |
+| `ingest-match` | Register a video file as a new match |
+| `run-match` | Run full detection → tracking → analytics → report pipeline |
+| `upload-match` | Upload processed artifacts to Cloudflare R2 |
 
-Python 3.9+ · FastAPI, OpenCV, FFmpeg, Ultralytics (YOLO), SQLite; React (Vite) for the web UI.
+Run any command with `--help` for full options.
+
+---
+
+## Deploying to Render
+
+1. Upload at least one processed match to R2 from your local machine
+2. Create a Render web service pointing at this repo
+   - **Build command:** `pip install -r requirements.txt`
+   - **Start command:** `uvicorn src.app.api:app --host 0.0.0.0 --port $PORT`
+3. Set environment variables: `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `R2_BUCKET`, `R2_ACCOUNT_ID`, `SUPABASE_URL`, `SUPABASE_ANON_KEY`
+
+---
+
+## Links
+
+- **Live Demo:** https://courtflow-mqns.onrender.com
+- **Repository:** https://github.com/Alsadegzahra/CF
+
+---
+
+## Team
+
+CourtFlow — TIE 251, King Abdullah University of Science and Technology (KAUST)

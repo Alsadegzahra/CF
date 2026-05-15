@@ -10,3 +10,6 @@ ultralytics>=8.0
 lap>=0.5  # required by ultralytics ByteTrack
 pandas>=1.5  # padel analytics layer
 fpdf2>=2.7  # PDF export for match reports
+supabase>=2.0
+PyJWT>=2.8
+httpx>=0.27
